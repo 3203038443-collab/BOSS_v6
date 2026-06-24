@@ -63,8 +63,13 @@ class Bot:
                     print("  扫描到 " + str(len(self.candidates)) + " 个候选人:")
                     print("  " + "=" * 45)
                     for i, c in enumerate(self.candidates, 1):
-                        u = " [新消息]" if c.get("has_unread") else ""
-                        print("    " + str(i).rjust(2) + ". " + c.get("name", "?") + u)
+                        if c.get("has_read"):
+                            s = "【已读】"
+                        elif c.get("has_unread"):
+                            s = " [新消息]"
+                        else:
+                            s = "【未读】"
+                        print("    " + str(i).rjust(2) + ". " + c.get("name", "?") + s)
                     if not self.candidates:
                         print("  (未找到候选人，可能页面结构变化)")
                 elif t == "chat_content":
