@@ -39,14 +39,24 @@
           var t = (children[j].innerText || "").trim();
           if (/^\d{1,2}$/.test(t)) { var n = parseInt(t, 10); if (n > 0 && n < 100) unreadNum = n; }
         }
-        // Check for \u5df2\u8bfb (\u5df2\u8bfb) indicator
+        // Check for read indicator - walk up DOM tree (up to 10 levels)
         var hasReadStatus = false;
         try {
-          if (item && item.parentElement) {
-            var pt = item.parentElement.innerText || "";
-            if (pt.indexOf("\u5df2\u8bfb") >= 0 || pt.indexOf("read") >= 0 || item.querySelector("[class*=read]") || item.querySelector("[class*=yidu]")) {
-              hasReadStatus = true;
+          var cp = item;
+          for (var cd = 0; cd < 10; cd++) {
+            if (!cp || cp === document.body) break;
+            var ct = cp.innerText || "";
+            if (ct.indexOf("\u5df2\u8bfb") >= 0) {
+              var ck = cp.querySelectorAll("span, div, i, em");
+              for (var ci = 0; ci < ck.length; ci++) {
+                var ct2 = (ck[ci].innerText || "").trim();
+                if (ct2.indexOf("\u5df2\u8bfb") >= 0 && ct2.length < 10) {
+                  hasReadStatus = true; break;
+                }
+              }
+              if (hasReadStatus) break;
             }
+            cp = cp.parentElement;
           }
         } catch(e) {}
         return {name: name.slice(0,20), last_msg: lastMsg, has_unread: unreadNum > 0, unread_count: unreadNum, has_read: hasReadStatus, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)};
@@ -653,7 +663,35 @@
   }
 
   // ===== 页面诊断 =====
-  function scanDetail() {
+  
+﻿  // ===== Check if current chat has been read =====
+  function checkIfRead() {
+    try {
+      var midX = window.innerWidth * 0.4;
+      var maxArea = 0, container = null;
+      var divs = document.querySelectorAll("div");
+      for (var i = 0; i < divs.length; i++) {
+        var r = divs[i].getBoundingClientRect();
+        if (r.left > midX && r.width > 200 && r.top < window.innerHeight * 0.7) {
+          var area = r.width * r.height;
+          if (area > maxArea) { maxArea = area; container = divs[i]; }
+        }
+      }
+      if (!container) return {is_read: false};
+      var allEls = container.querySelectorAll("*");
+      for (var i = 0; i < allEls.length; i++) {
+        var t = (allEls[i].innerText || "").trim();
+        if (t.indexOf("\u5df2\u8bfb") >= 0 && t.length < 10) {
+          return {is_read: true};
+        }
+      }
+      return {is_read: false};
+    } catch(e) {
+      return {is_read: false, error: e.message};
+    }
+  }
+
+function scanDetail() {
     var result = {url: location.href, title: document.title, viewport: window.innerWidth+"x"+window.innerHeight, bodyLength: (document.body.innerText||"").length, elements: [], inputs: [], allText: []};
     // 收集所有可见文本
     var textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
@@ -697,6 +735,9 @@
         break;
       case "read_chat":
         sendResponse({type: "chat_content", data: readChat()});
+        break;
+      case "check_read":
+        sendResponse({type: "read_status", data: checkIfRead()});
         break;
       case "scan_detail":
         sendResponse({type: "detail", data: scanDetail()});
@@ -747,7 +788,9 @@
             sendMsg(msg.params.text).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed"})); });
           } else if (msg.cmd === "read_chat") {
             cws.send(JSON.stringify({type: "chat_content", data: readChat()}));
-          } else if (msg.cmd === "scan_detail") {
+                  } else if (msg.cmd === "check_read") {
+            cws.send(JSON.stringify({type: "read_status", data: checkIfRead()}));
+} else if (msg.cmd === "scan_detail") {
             cws.send(JSON.stringify({type: "detail", data: scanDetail()}));
           } else if (msg.cmd === "ping") {
             cws.send(JSON.stringify({type: "pong", data: "ok"}));
