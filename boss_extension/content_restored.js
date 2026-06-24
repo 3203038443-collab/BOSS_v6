@@ -39,17 +39,7 @@
           var t = (children[j].innerText || "").trim();
           if (/^\d{1,2}$/.test(t)) { var n = parseInt(t, 10); if (n > 0 && n < 100) unreadNum = n; }
         }
-        // Check for \u5df2\u8bfb (\u5df2\u8bfb) indicator
-        var hasReadStatus = false;
-        try {
-          if (item && item.parentElement) {
-            var pt = item.parentElement.innerText || "";
-            if (pt.indexOf("\u5df2\u8bfb") >= 0 || pt.indexOf("read") >= 0 || item.querySelector("[class*=read]") || item.querySelector("[class*=yidu]")) {
-              hasReadStatus = true;
-            }
-          }
-        } catch(e) {}
-        return {name: name.slice(0,20), last_msg: lastMsg, has_unread: unreadNum > 0, unread_count: unreadNum, has_read: hasReadStatus, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)};
+        return {name: name.slice(0,20), last_msg: lastMsg, has_unread: unreadNum > 0, unread_count: unreadNum, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)};
       } catch(e) { return null; }
     }
 
@@ -129,7 +119,7 @@
         var t = (el.innerText || el.textContent || "").trim();
         if (!t || t.length < 2 || t.length > 20) continue;
         if (/^\d+$/.test(t) || seen[t]) continue;
-        if (/^[\u4e00-\u9fa5]{2,4}$/.test(t)) {
+        if (/^[一-龥]{2,4}$/.test(t)) {
           seen[t] = true;
           result.candidates.push({name: t.slice(0,20), last_msg: "", has_unread: false, x: Math.round(r.left), y: Math.round(r.top)});
         }
@@ -224,20 +214,19 @@
     }
   }
 
-  // ===== 发送消息 (多层策略+暴力发送) =====
+  // ===== 发送消息 (多层策略) =====
   async function sendMsg(text) {
     console.log("[CT] sendMsg");
 
-    // 找输入框 - 使用更全面选择器
+    // 找输入框
     var inputEl = null;
     var leftBound = window.innerWidth * 0.3;
     var inputSelectors = [
       'textarea', 'input[type="text"]',
-      '[contenteditable="true"]', '[contenteditable]', '[role="textbox"]',
+      '[contenteditable="true"]', '[role="textbox"]',
       '[class*=input]', '[class*=editor]',
       '[class*=chat-input]', '[class*=msg-input]',
-      '[class*=message-input]', '[aria-label*=输入]', '[aria-label*=message]',
-      '[placeholder*=输入]', '[placeholder*=说]'
+      '[class*=message-input]', '[aria-label*=输入]'
     ];
     for (var s = 0; s < inputSelectors.length; s++) {
       var els = document.querySelectorAll(inputSelectors[s]);
@@ -250,43 +239,45 @@
       if (inputEl) break;
     }
 
-    // 兜底: 任何可见输入元素
+    // 兜底: 找底部最接近底部的可编辑元素
     if (!inputEl) {
-      var allInputs = document.querySelectorAll("textarea, [contenteditable], input[type=text], [role=textbox]");
+      var allInputs = document.querySelectorAll("textarea, [contenteditable], input[type=text]");
       for (var i = 0; i < allInputs.length; i++) {
         var r = allInputs[i].getBoundingClientRect();
-        if (r.width > 80 && r.height > 20) { inputEl = allInputs[i]; break; }
+        if (r.width > 100 && r.height > 20) { inputEl = allInputs[i]; break; }
       }
     }
 
     if (!inputEl) { console.log("[CT] input not found"); return false; }
 
-    // 聚焦并清空输入框
+    // 聚焦
     inputEl.focus();
     inputEl.click();
-    await sleep(rand(200, 400));
+    await sleep(rand(300, 600));
 
     // 清空
     if (inputEl.isContentEditable) {
       inputEl.innerHTML = "";
-      inputEl.dispatchEvent(new InputEvent("input", {bubbles: true, cancelable: true}));
+      inputEl.dispatchEvent(new Event("input", {bubbles: true}));
     } else if (inputEl.tagName === "TEXTAREA" || inputEl.tagName === "INPUT") {
       inputEl.value = "";
       inputEl.dispatchEvent(new Event("input", {bubbles: true}));
     }
 
-    // ***** 逐字输入 (人类打字延迟，防检测) *****
+    // ***** 逐字输入 (带人类打字延迟，防检测) *****
     for (var i = 0; i < text.length; i++) {
       var ch = text[i];
-      var delay = rand(60, 160);
-      if (Math.random() < 0.1) delay += rand(300, 1200);
+      var delay = rand(60, 180);
+      if (Math.random() < 0.1) delay += rand(400, 1500); // 10%概率停顿
       await sleep(delay);
 
       if (inputEl.isContentEditable) {
+        // 策略A: execCommand (contenteditable)
         try { document.execCommand("insertText", false, ch); } catch(e) {}
-        inputEl.dispatchEvent(new InputEvent("input", {bubbles: true, cancelable: true}));
+        inputEl.dispatchEvent(new Event("input", {bubbles: true}));
         inputEl.dispatchEvent(new Event("change", {bubbles: true}));
       } else if (inputEl.tagName === "TEXTAREA" || inputEl.tagName === "INPUT") {
+        // 策略B: nativeInputValueSetter + input事件
         try {
           var proto = inputEl.tagName === "TEXTAREA" ? HTMLTextAreaElement : HTMLInputElement;
           var setter = Object.getOwnPropertyDescriptor(proto.prototype, "value").set;
@@ -302,124 +293,49 @@
       }
     }
 
-    await sleep(rand(300, 800));
+    await sleep(rand(500, 1200));
 
-    // ===== 暴力发送: 尝试6种策略 =====
-    console.log("[CT] trying send strategies...");
+    // ===== 发送: 找发送按钮或按Enter =====
+    var sendBtn = null;
+    // 按文本找
+    var allBtns = document.querySelectorAll("button, [role=button], a, [class*=send]");
+    for (var i = 0; i < allBtns.length; i++) {
+      var btnText = (allBtns[i].innerText || allBtns[i].textContent || allBtns[i].getAttribute("aria-label") || "").trim().toLowerCase();
+      if (btnText.indexOf("发送") >= 0 || btnText === "send" || btnText === "enter") {
+        var r = allBtns[i].getBoundingClientRect();
+        if (r.width > 16 && r.height > 16) { sendBtn = allBtns[i]; break; }
+      }
+    }
 
-    // 策略1: 按文本/类名找发送按钮
-    function findAllSendButtons() {
+    // 按位置找 (输入框右侧最近的按钮)
+    if (!sendBtn && inputEl) {
       var ir = inputEl.getBoundingClientRect();
-      var results = [];
-      var allElements = document.querySelectorAll("button, [role=button], a, span, div, i, svg, [class*=send], [class*=fabu], [class*=icon]");
-      for (var i = 0; i < allElements.length; i++) {
-        var el = allElements[i];
-        var r = el.getBoundingClientRect();
-        if (r.width < 16 || r.height < 16) continue;
-        var t = (el.innerText || el.textContent || el.getAttribute("aria-label") || "").trim().toLowerCase();
-        var cls = (el.className || "").toLowerCase();
-        var score = 0;
-        if (t.indexOf("\u53d1\u9001") >= 0) score += 200;
-        if (t.indexOf("send") >= 0) score += 150;
-        if (t.indexOf("\u63d0\u4ea4") >= 0) score += 100;
-        if (t.indexOf("\u786e\u5b9a") >= 0) score += 50;
-        if (cls.indexOf("send") >= 0) score += 100;
-        if (cls.indexOf("fabu") >= 0) score += 100;
-        if (cls.indexOf("chat-send") >= 0) score += 200;
-        if (cls.indexOf("btn-send") >= 0) score += 150;
-        if (el.tagName === "BUTTON") score += 30;
-        if (el.tagName === "I" || el.tagName === "SVG") score += 10;
-        if (r.left > ir.left + ir.width * 0.5 && r.left < ir.right + 200) score += 50;
-        if (r.top > ir.top - 20 && r.top < ir.bottom + 20) score += 40;
-        if (score > 0) results.push({el: el, score: score, r: r, tag: el.tagName});
-      }
-      results.sort(function(a,b) { return b.score - a.score; });
-      return results;
-    }
-
-    // 策略2: 找右下角所有可点击元素
-    function findBottomRightClickables() {
-      var results = [];
-      var viewH = window.innerHeight;
-      var viewW = window.innerWidth;
-      var allEls = document.querySelectorAll("button, [role=button], a, [onclick], [class*=btn], [class*=send], [class*=fabu]");
-      for (var i = 0; i < allEls.length; i++) {
-        var r = allEls[i].getBoundingClientRect();
-        if (r.width < 20 || r.height < 20) continue;
-        if (r.top < viewH * 0.55 || r.top > viewH - 10) continue;
-        if (r.left < viewW * 0.4) continue;
-        results.push({el: allEls[i], r: r, dist: r.top + r.left});
-      }
-      results.sort(function(a,b) { return b.r.left - a.r.left; });
-      return results;
-    }
-
-    // 通用点击函数 - 用多种方法点击元素
-    function clickElement(el) {
-      var methods = [
-        function() { try { el.click(); } catch(e) {} },
-        function() { el.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, cancelable: true, button: 0})); el.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, button: 0})); el.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, button: 0})); },
-        function() { el.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, cancelable: true, pointerId: 1})); el.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, pointerId: 1})); },
-        function() { el.dispatchEvent(new PointerEvent("click", {bubbles: true, cancelable: true})); }
-      ];
-      for (var i = 0; i < methods.length; i++) {
-        try { methods[i](); } catch(e) {}
-      }
-    }
-
-    // Stage 1: 按优先级找发送按钮并点击
-    var sendButtons = findAllSendButtons();
-    for (var i = 0; i < sendButtons.length && i < 5; i++) {
-      clickElement(sendButtons[i].el);
-      console.log("[CT] tried send btn:", sendButtons[i].tag, "score:", sendButtons[i].score);
-    }
-
-    // Stage 2: 尝试右下角所有按钮
-    var bottomBtns = findBottomRightClickables();
-    for (var i = 0; i < bottomBtns.length && i < 5; i++) {
-      clickElement(bottomBtns[i].el);
-      console.log("[CT] tried bottom btn:", bottomBtns[i].el.tagName, "cls:", (bottomBtns[i].el.className||"").slice(0,30));
-    }
-
-    // Stage 3: 发送Enter键
-    inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true}));
-    inputEl.dispatchEvent(new KeyboardEvent("keypress", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true}));
-    inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true}));
-    console.log("[CT] tried Enter key");
-
-    // Stage 4: contenteditable插入换行触发发送
-    if (inputEl.isContentEditable) {
-      try {
-        document.execCommand("insertText", false, "\n");
-        inputEl.dispatchEvent(new Event("input", {bubbles: true}));
-        inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));
-        console.log("[CT] tried insertText newline");
-      } catch(e) {}
-    }
-
-    // Stage 5: 尝试直接调用React的__reactProps
-    try {
-      var key = Object.keys(inputEl).find(function(k) { return k.indexOf("__reactProps") >= 0 || k.indexOf("__reactEvent") >= 0 || k.indexOf("__reactFiber") >= 0; });
-      if (key) {
-        var props = inputEl[key];
-        if (props && props.onKeyDown) {
-          var fakeEvent = {key: "Enter", keyCode: 13, which: 13, target: inputEl, currentTarget: inputEl, bubbles: true, preventDefault: function(){}, stopPropagation: function(){}};
-          props.onKeyDown(fakeEvent);
-          console.log("[CT] tried React onKeyDown");
+      var allClickable = document.querySelectorAll("button, [role=button]");
+      var closestBtn = null, closestDist = Infinity;
+      for (var i = 0; i < allClickable.length; i++) {
+        var r = allClickable[i].getBoundingClientRect();
+        var dist = Math.abs(r.top - ir.top) + Math.abs(r.left - (ir.left + ir.width + 10));
+        if (r.left > ir.left + ir.width * 0.8 && r.top > ir.top - 40 && r.top < ir.top + 60 && dist < closestDist) {
+          closestDist = dist; closestBtn = allClickable[i];
         }
       }
-    } catch(e) { console.log("[CT] React prop error:", e.message); }
+      if (closestBtn && closestDist < 200) sendBtn = closestBtn;
+    }
 
-    // Stage 6: 类名带send/fabu的button全部点击
-    try {
-      var allButtons = document.querySelectorAll("button[class*=send], button[class*=fabu], button[class*=btn], [class*=send-btn], [class*=send_btn], [class*=chat-send], [class*=chatSend]");
-      for (var i = 0; i < allButtons.length; i++) {
-        var r = allButtons[i].getBoundingClientRect();
-        if (r.width > 20 && r.height > 20) { clickElement(allButtons[i]); console.log("[CT] tried class-based btn"); }
-      }
-    } catch(e) {}
+    if (sendBtn) {
+      sendBtn.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, button: 0}));
+      await sleep(rand(30, 80));
+      sendBtn.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, button: 0}));
+      sendBtn.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0}));
+      console.log("[CT] clicked send button");
+    } else {
+      // 按Enter发送
+      inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));
+      inputEl.dispatchEvent(new KeyboardEvent("keypress", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true}));
+      inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));
+    }
 
-    await sleep(2000 + rand(0, 1000));
+    await sleep(2000 + rand(0, 1500));
     console.log("[CT] send done");
     return true;
   }
@@ -522,3 +438,4 @@
 
   console.log("[CT] BOSS直聘助手 v6.1 加载完成");
 })();
+
