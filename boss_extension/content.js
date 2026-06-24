@@ -419,50 +419,94 @@
       }
     } catch(e) {}
 
-    // Phase 7: 终极方案 - 遍历DOM找发送按钮
+        // Phase 7: BOSS\u76f4\u8058\u5c02\u7528\u53d1\u9001\u7b56\u7565 - \u904d\u5386React Fiber\u627e\u53d1\u9001handler
     try {
-      // 找输入框右下角所有可能的发送按钮
-      var ir = inputEl.getBoundingClientRect();
-      var viewH = window.innerHeight;
-      var viewW = window.innerWidth;
+      var sendPhase7 = {done: false};
       
-      // 搜索发送图标区域 (右下角)
-      var allElements = document.querySelectorAll("span, i, button, div, svg");
-      for (var ci = 0; ci < allElements.length; ci++) {
-        var cel = allElements[ci];
-        var cr = cel.getBoundingClientRect();
-        // 在输入框附近右下角
-        if (cr.width < 10 || cr.height < 10) continue;
-        if (cr.top < ir.top - 80 || cr.top > ir.bottom + 60) continue;
-        if (cr.left < viewW * 0.6) continue;
-        
-        var ctag = cel.tagName.toLowerCase();
-        var ccls = (cel.className || "").toLowerCase();
-        var ctitle = (cel.title || cel.getAttribute("aria-label") || "").toLowerCase();
-        
-        // 尝试点击所有有可能是发送按钮的元素
-        if (ccls.indexOf("send") >= 0 || ccls.indexOf("fabu") >= 0 || ccls.indexOf("chat") >= 0 || ccls.indexOf("send") >= 0 || ccls.indexOf("btn") >= 0 || ctag === "button" || ctag === "i" || ctag === "svg") {
-          // 多种点击方式
-          try { cel.click(); } catch(e) {}
-          cel.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, button: 0}));
-          cel.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, button: 0}));
-          cel.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0}));
-          cel.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, pointerId: 1}));
-          cel.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, pointerId: 1}));
-          
-          // 如果SVG图标有父级button, 也点击
-          if (ctag === "svg" || ctag === "i") {
-            var parentBtn = cel.closest("button, [role=button], a") || cel.parentElement;
-            if (parentBtn) {
-              try { parentBtn.click(); } catch(e) {}
-              parentBtn.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, button: 0}));
-              parentBtn.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, button: 0}));
-              parentBtn.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0}));
-            }
+      // \u7b56\u7565A: \u4eceinput\u5411\u4e0a\u627e\u6700\u8fd1\u7684\u6587\u4ef6\u7cfb\u7edf\u5e76\u8c03\u7528onSubmit
+      var formEl = inputEl.closest("form") || inputEl.parentElement;
+      while (formEl && formEl !== document.body) {
+        var formKeys = Object.keys(formEl).filter(function(k) { return k.indexOf("__reactProps") >= 0 || k.indexOf("__reactFiber") >= 0; });
+        for (var fi = 0; fi < formKeys.length; fi++) {
+          var formProps = formEl[formKeys[fi]];
+          if (formProps && formProps.onSubmit) {
+            try { formProps.onSubmit({preventDefault: function(){}, target: formEl}); console.log("[CT] Phase7 form onSubmit"); } catch(ex) {}
           }
         }
+        formEl = formEl.parentElement;
       }
-    } catch(e) { console.log("[CT] Phase 7 error:", e.message); }
+      
+      // \u7b56\u7565B: \u627e\u53f3\u4e0b\u89d2\u6240\u6709div/button/span\u7684React handler
+      var viewW7 = window.innerWidth;
+      var viewH7 = window.innerHeight;
+      var all7 = document.querySelectorAll("button, div, span, i, svg, a");
+      for (var ai = 0; ai < all7.length; ai++) {
+        var ael = all7[ai];
+        var ar = ael.getBoundingClientRect();
+        if (ar.width < 10 || ar.height < 10) continue;
+        if (ar.top < viewH7 * 0.55 || ar.top > viewH7 - 5) continue;
+        if (ar.left < viewW7 * 0.5) continue;
+        
+        // \u5728\u53f3\u4e0b\u89d2\u7684\u5143\u7d20 - \u68c0\u67e5React handlers
+        var aKeys = Object.keys(ael).filter(function(k) { return k.indexOf("__reactProps") >= 0 || k.indexOf("__reactFiber") >= 0; });
+        for (var aii = 0; aii < aKeys.length; aii++) {
+          var aProps = ael[aKeys[aii]];
+          if (!aProps) continue;
+          if (aProps.onClick) {
+            try { 
+              aProps.onClick({target: ael, currentTarget: ael, bubbles: true, preventDefault: function(){}, stopPropagation: function(){}});
+              sendPhase7.done = true;
+            } catch(ex) {}
+          }
+          if (aProps.onMouseDown) {
+            try { 
+              aProps.onMouseDown({target: ael, currentTarget: ael, button: 0, bubbles: true, preventDefault: function(){}, stopPropagation: function(){}});
+              sendPhase7.done = true;
+            } catch(ex) {}
+          }
+        }
+        
+        // \u5982\u679c\u662fSVG\u6216icon, \u4e5f\u70b9\u51fb\u7236\u5143\u7d20
+        if (ael.tagName === "svg" || ael.tagName === "i") {
+          var parent7 = ael.closest("button, [role=button], a") || ael.parentElement;
+          if (parent7 && parent7 !== ael) {
+            try { parent7.click(); } catch(ex) {}
+            var p7Keys = Object.keys(parent7).filter(function(k) { return k.indexOf("__reactProps") >= 0; });
+            for (var p7i = 0; p7i < p7Keys.length; p7i++) {
+              var p7Props = parent7[p7Keys[p7i]];
+              if (p7Props && p7Props.onClick) {
+                try { p7Props.onClick({target: parent7, currentTarget: parent7, bubbles: true, preventDefault: function(){}, stopPropagation: function(){}}); } catch(ex) {}
+              }
+            }
+            // \u4e5f\u8bd5\u4e00\u4e0bPointerEvent
+            parent7.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, pointerId: 1}));
+            parent7.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, pointerId: 1}));
+          }
+        }
+        
+        // \u5982\u679c\u662fbutton, \u4e5f\u8bd5\u4e00\u4e0bPointerEvent
+        if (ael.tagName === "button" || ael.getAttribute("role") === "button") {
+          ael.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, pointerId: 1}));
+          ael.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, pointerId: 1}));
+          try { ael.click(); } catch(ex) {}
+        }
+      }
+      
+      // \u7b56\u7565C: \u5728contenteditable\u4e2d\u63d2\u5165\u6362\u884c
+      if (inputEl.isContentEditable) {
+        try {
+          document.execCommand("insertHTML", false, "<br>");
+          inputEl.dispatchEvent(new InputEvent("input", {bubbles: true, inputType: "insertLineBreak"}));
+          console.log("[CT] Phase7 insertLineBreak");
+        } catch(ex) {}
+        // \u518d\u6b21\u53d1Enter
+        inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true}));
+        inputEl.dispatchEvent(new KeyboardEvent("keypress", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true}));
+        inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true}));
+      }
+      
+      console.log("[CT] Phase7 done");
+    } catch(e) { console.log("[CT] Phase7 error:", e.message); }
 
     await sleep(2000 + rand(0, 1000));
     console.log("[CT] send done");
@@ -600,6 +644,8 @@
   }
   setTimeout(connectDirectWS, 500);
 })();
+
+
 
 
 
