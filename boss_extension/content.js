@@ -10,128 +10,65 @@
     var viewW = window.innerWidth;
     var viewH = window.innerHeight;
     var seen = {};
-
-    // 策略1: 找左侧面板
-    var panels = document.querySelectorAll("div");
-    var bestPanel = null, bestArea = 0;
-    for (var i = 0; i < panels.length; i++) {
-      var r = panels[i].getBoundingClientRect();
-      if (r.left >= 0 && r.left < viewW * 0.4 && r.width > 150 && r.height > 200) {
-        var area = r.width * r.height;
-        if (area > bestArea) { bestArea = area; bestPanel = panels[i]; }
-      }
-    }
-
-    function extractName(item) {
+    
+    // Smart scan: only elements with avatar IMG + Chinese name text
+    var allEls = document.querySelectorAll("div, li, a");
+    for (var i = 0; i < allEls.length; i++) {
+      var el = allEls[i];
+      var r = el.getBoundingClientRect();
+      if (r.left > viewW * 0.45 || r.width < 80 || r.height < 30) continue;
+      if (r.top < 30 || r.top > viewH * 0.9) continue;
+      var img = el.querySelector("img");
+      if (!img) continue;
+      var text = (el.innerText || "").trim();
+      if (!text || text.length < 3 || text.length > 120) continue;
+      var lines = text.split("\n").filter(function(l) { return l.trim(); });
+      if (lines.length === 0) continue;
+      var name = lines[0].trim();
+      if (name.length < 2 || name.length > 20 || /^\d+$/.test(name)) continue;
+      var norm = name.toLowerCase().replace(/\s/g, "");
+      if (seen[norm]) continue;
+      seen[norm] = true;
+      var lastMsg = lines.length > 1 ? lines[1].trim().slice(0, 80) : "";
+      var hasRead = false;
       try {
-        var text = (item.innerText || "").trim();
-        if (!text || text.length < 2) return null;
-        var r = item.getBoundingClientRect();
-        if (r.width < 50 || r.height < 20) return null;
-        var lines = text.split("\n").filter(function(l) { return l.trim(); });
-        if (lines.length === 0) return null;
-        var name = lines[0].trim();
-        if (name.length < 1 || name.length > 20 || /^\d+$/.test(name)) return null;
-        var lastMsg = lines.length > 1 ? lines[1].trim().slice(0, 80) : "";
-        var unreadNum = 0;
-        var children = item.querySelectorAll("*");
-        for (var j = 0; j < children.length; j++) {
-          var t = (children[j].innerText || "").trim();
-          if (/^\d{1,2}$/.test(t)) { var n = parseInt(t, 10); if (n > 0 && n < 100) unreadNum = n; }
-        }
-        // Check for read indicator - walk up DOM tree (up to 10 levels)
-        var hasReadStatus = false;
-        try {
-          var cp = item;
-          for (var cd = 0; cd < 10; cd++) {
-            if (!cp || cp === document.body) break;
-            var ct = cp.innerText || "";
-            if (ct.indexOf("\u5df2\u8bfb") >= 0) {
-              var ck = cp.querySelectorAll("span, div, i, em");
-              for (var ci = 0; ci < ck.length; ci++) {
-                var ct2 = (ck[ci].innerText || "").trim();
-                if (ct2.indexOf("\u5df2\u8bfb") >= 0 && ct2.length < 10) {
-                  hasReadStatus = true; break;
-                }
-              }
-              if (hasReadStatus) break;
+        var we = el;
+        for (var wd = 0; wd < 10; wd++) {
+          if (!we || we === document.body) break;
+          var wt = we.innerText || "";
+          if (wt.indexOf("\u5df2\u8bfb") >= 0) {
+            var ck = we.querySelectorAll("span, div, i, em");
+            for (var ci = 0; ci < ck.length; ci++) {
+              var ct2 = (ck[ci].innerText || "").trim();
+              if (ct2.indexOf("\u5df2\u8bfb") >= 0 && ct2.length < 10) { hasRead = true; break; }
             }
-            cp = cp.parentElement;
+            if (hasRead) break;
           }
-        } catch(e) {}
-        return {name: name.slice(0,20), last_msg: lastMsg, has_unread: unreadNum > 0, unread_count: unreadNum, has_read: hasReadStatus, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)};
-      } catch(e) { return null; }
-    }
-
-    // 策略2: 在左侧面板内找条目
-    if (bestPanel) {
-      result.debug = "panelFound";
-      var items = bestPanel.querySelectorAll("li, div, [class*=item], [class*=row], [class*=card], [class*=chat], [class*=list]");
-      for (var i = 0; i < items.length; i++) {
-        var c = extractName(items[i]);
-        if (c && c.name && !seen[c.name]) { seen[c.name] = true; result.candidates.push(c); }
-      }
-    }
-
-    // 策略3: 全页面找中文名（左半区域）
-    if (result.candidates.length === 0) {
-      result.debug = "fallbackTextScan";
-      var allEls = document.querySelectorAll("div, li, a, span, button");
-      for (var i = 0; i < allEls.length; i++) {
-        var r = allEls[i].getBoundingClientRect();
-        if (r.width === 0 || r.height === 0 || r.left > viewW * 0.5 || r.top < 40 || r.top > viewH * 0.9) continue;
-        var t = (allEls[i].innerText || "").trim();
-        if (!t || t.length < 2 || t.length > 100) continue;
-        var lines = t.split("\n").filter(function(l) { return l.trim(); });
-        if (lines.length === 0) continue;
-        var name = lines[0].trim();
-        if (name.length > 20 || name.length < 1 || /^\d+$/.test(name) || seen[name]) continue;
-        seen[name] = true;
-        result.candidates.push({name: name.slice(0,20), last_msg: lines.length > 1 ? lines[1].trim().slice(0,80) : "", has_unread: false, unread_count: 0, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)});
-      }
-    }
-
-    // 策略4: 尝试用 role 属性找列表
-    if (result.candidates.length === 0) {
-      result.debug = "roleListScan";
-      var lists = document.querySelectorAll('[role="list"], [role="listbox"], [role="menu"]');
-      if (lists.length > 0) {
-        for (var li = 0; li < lists.length; li++) {
-          var r = lists[li].getBoundingClientRect();
-          if (r.left < viewW * 0.4) {
-            var childItems = lists[li].querySelectorAll("[role=listitem], li, > div");
-            for (var ci = 0; ci < childItems.length; ci++) {
-              var c = extractName(childItems[ci]);
-              if (c && c.name && !seen[c.name]) { seen[c.name] = true; result.candidates.push(c); }
-            }
-            if (result.candidates.length > 0) break;
-          }
+          we = we.parentElement;
         }
-      }
+      } catch(ex) {}
+      var unreadNum = 0;
+      try {
+        var uKids = el.querySelectorAll("*");
+        for (var uj = 0; uj < uKids.length; uj++) {
+          var ut = (uKids[uj].innerText || "").trim();
+          if (/^\d{1,2}$/.test(ut)) { var n = parseInt(ut, 10); if (n > 0 && n < 100) unreadNum = n; }
+        }
+      } catch(ex) {}
+      result.candidates.push({
+        name: name.slice(0, 20),
+        last_msg: lastMsg,
+        has_unread: unreadNum > 0,
+        unread_count: unreadNum,
+        has_read: hasRead,
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(r.top + r.height / 2)
+      });
     }
-
-    // 策略5-7: 移除过度激进策略，结果已在下方去重过滤
-    // Dedup and filter low-quality candidates
-    var seenNames = {};
-    var cleanList = [];
-    for (var di = 0; di < result.candidates.length; di++) {
-      var dc = result.candidates[di];
-      var dn = (dc.name || "").trim();
-      if (!dn || dn.length < 2) continue;
-      var dk = dn.toLowerCase().replace(/\s/g, "");
-      if (seenNames[dk]) continue;
-      if (/^\d+$/.test(dn)) continue;
-      seenNames[dk] = true;
-      cleanList.push(dc);
-    }
-    result.candidates = cleanList;
-    result.debug += "_deduped:" + cleanList.length;
-    console.log("[CT] scanAll:", result.candidates.length, "candidates, debug:", result.debug);
+    result.debug = "img_avatar_scan:" + result.candidates.length;
+    console.log("scanAll:", result.candidates.length, "candidates");
     return result;
-  }
-
-  // ===== 点击候选人 =====
-  async function clickCand(name) {
+  }function clickCand(name) {
     console.log("[CT] clickCand:", name);
 
     // 方法1: TreeWalker找文本节点
