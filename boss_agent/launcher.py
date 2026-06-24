@@ -39,6 +39,7 @@ class Bot:
         self.server = None
         self.min_delay = 4
         self.max_delay = 10
+        self.page_title = ""
 
     def rand_delay(self):
         return random.uniform(self.min_delay, self.max_delay)
@@ -277,7 +278,7 @@ class Bot:
                     await self.cmd("send_message", {"text": TEMPLATES[s]})
                     await asyncio.sleep(self.rand_delay())
                     sent += 1
-                    self.actions += 1
+                    
                 print('  \u5df2\u53d1\u9001: ' + str(sent) + '/' + str(total))
             elif c == "8":
                 print("  话术模板:")
@@ -297,3 +298,4 @@ if __name__ == "__main__":
         print()
         print("  [错误] " + str(e))
         input("  按Enter退出...")
+
