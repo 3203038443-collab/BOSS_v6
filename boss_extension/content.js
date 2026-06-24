@@ -6,36 +6,32 @@
 
   // ===== 扫描候选人 (多层策略) =====
   function scanAll() {
-    var result = {candidates: [], page_url: location.href, page_title: document.title, debug: ""};
-    var viewW = window.innerWidth;
-    var viewH = window.innerHeight;
+    var result = {candidates: [], page_url: location.href, debug: ""};
+    var viewW = window.innerWidth, viewH = window.innerHeight;
     var seen = {};
-    var all = document.querySelectorAll("div, li, a");
+    var all = document.querySelectorAll("div, li, a, span");
     for (var i = 0; i < all.length; i++) {
       try {
         var el = all[i];
         var r = el.getBoundingClientRect();
-        if (r.left > viewW * 0.45 || r.width < 60 || r.height < 25) continue;
-        if (r.top < 30 || r.top > viewH * 0.9) continue;
+        if (r.left > viewW * 0.5 || r.top < 15 || r.top > viewH - 15) continue;
+        if (r.width < 30 || r.height < 18) continue;
         var txt = (el.innerText || "").trim();
-        if (!txt || txt.length < 4 || txt.length > 300) continue;
-        var lines = txt.split("\n").filter(function(l) { return l.trim(); });
-        if (lines.length < 2) continue;
-        var name = lines[0].trim();
-        if (name.length < 1 || name.length > 30 || /^\d+$/.test(name)) continue;
+        if (!txt || txt.length < 2 || txt.length > 500) continue;
+        var name = txt.split("\n")[0].trim();
+        if (!name || name.length > 30 || /^\d+$/.test(name)) continue;
         var norm = name.toLowerCase().replace(/\s/g, "");
         if (seen[norm]) continue;
         seen[norm] = true;
+        var lastMsg = txt.length > name.length ? txt.slice(name.length).trim().slice(0, 80) : "";
         result.candidates.push({
-          name: name.slice(0, 20),
-          last_msg: lines[1].trim().slice(0, 80),
+          name: name.slice(0, 20), last_msg: lastMsg,
           has_read: txt.indexOf("\u5df2\u8bfb") >= 0,
-          x: Math.round(r.left + r.width / 2),
-          y: Math.round(r.top + r.height / 2)
         });
       } catch(ex) {}
     }
-    result.debug = "direct_scan:" + result.candidates.length;
+    if (result.candidates.length > 5) result.candidates = result.candidates.slice(0, 5);
+    result.debug = "relaxed_scan:" + result.candidates.length;
     console.log("scanAll: " + result.candidates.length + " candidates");
     return result;
   }function clickCand(name) {
