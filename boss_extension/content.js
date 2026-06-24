@@ -1,17 +1,17 @@
-(function() {
+﻿(function() {
   "use strict";
 
   function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
   function rand(a, b) { return Math.random() * (b - a) + a; }
 
-  // ===== 扫描候选人 (多层策略) =====
+  // ===== 鎵弿鍊欓€変汉 (澶氬眰绛栫暐) =====
   function scanAll() {
     var result = {candidates: [], page_url: location.href, page_title: document.title, debug: ""};
     var viewW = window.innerWidth;
     var viewH = window.innerHeight;
     var seen = {};
 
-    // 策略1: 找左侧面板
+    // 绛栫暐1: 鎵惧乏渚ч潰鏉?
     var panels = document.querySelectorAll("div");
     var bestPanel = null, bestArea = 0;
     for (var i = 0; i < panels.length; i++) {
@@ -43,7 +43,7 @@
       } catch(e) { return null; }
     }
 
-    // 策略2: 在左侧面板内找条目
+    // 绛栫暐2: 鍦ㄥ乏渚ч潰鏉垮唴鎵炬潯鐩?
     if (bestPanel) {
       result.debug = "panelFound";
       var items = bestPanel.querySelectorAll("li, div, [class*=item], [class*=row], [class*=card], [class*=chat], [class*=list]");
@@ -53,7 +53,7 @@
       }
     }
 
-    // 策略3: 全页面找中文名（左半区域）
+    // 绛栫暐3: 鍏ㄩ〉闈㈡壘涓枃鍚嶏紙宸﹀崐鍖哄煙锛?
     if (result.candidates.length === 0) {
       result.debug = "fallbackTextScan";
       var allEls = document.querySelectorAll("div, li, a, span, button");
@@ -71,7 +71,7 @@
       }
     }
 
-    // 策略4: 尝试用 role 属性找列表
+    // 绛栫暐4: 灏濊瘯鐢?role 灞炴€ф壘鍒楄〃
     if (result.candidates.length === 0) {
       result.debug = "roleListScan";
       var lists = document.querySelectorAll('[role="list"], [role="listbox"], [role="menu"]');
@@ -90,7 +90,7 @@
       }
     }
 
-    // 策略5: TreeWalker收集左侧所有文本节点 (终极兜底)
+    // 绛栫暐5: TreeWalker鏀堕泦宸︿晶鎵€鏈夋枃鏈妭鐐?(缁堟瀬鍏滃簳)
     if (result.candidates.length === 0) {
       result.debug = "treeWalker_fallback";
       try {
@@ -107,7 +107,7 @@
         }
       } catch(e) { result.debug = "treeWalker_error"; }
     }
-    // 策略6: 终极兜底 - 收集所有可见文本中疑似人名的内容
+    // 绛栫暐6: 缁堟瀬鍏滃簳 - 鏀堕泦鎵€鏈夊彲瑙佹枃鏈腑鐤戜技浜哄悕鐨勫唴瀹?
     if (result.candidates.length === 0) {
       result.debug = "ultimateCatchAll";
       var allElements = document.querySelectorAll("div, li, a, span, button, p, h1, h2, h3, h4");
@@ -119,14 +119,14 @@
         var t = (el.innerText || el.textContent || "").trim();
         if (!t || t.length < 2 || t.length > 20) continue;
         if (/^\d+$/.test(t) || seen[t]) continue;
-        if (/^[一-龥]{2,4}$/.test(t)) {
+        if (/^[涓€-榫{2,4}$/.test(t)) {
           seen[t] = true;
           result.candidates.push({name: t.slice(0,20), last_msg: "", has_unread: false, x: Math.round(r.left), y: Math.round(r.top)});
         }
       }
     }
 
-    // 策略7: 暴力文本收集 - 收集页面左侧所有可见文本节点的全部内容
+    // 绛栫暐7: 鏆村姏鏂囨湰鏀堕泦 - 鏀堕泦椤甸潰宸︿晶鎵€鏈夊彲瑙佹枃鏈妭鐐圭殑鍏ㄩ儴鍐呭
     if (result.debug.startsWith("ultimate") || result.candidates.length < 3) {
       result.debug = "textDumpAll";
       var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
@@ -149,11 +149,11 @@
     return result;
   }
 
-  // ===== 点击候选人 =====
+  // ===== 鐐瑰嚮鍊欓€変汉 =====
   async function clickCand(name) {
     console.log("[CT] clickCand:", name);
 
-    // 方法1: TreeWalker找文本节点
+    // 鏂规硶1: TreeWalker鎵炬枃鏈妭鐐?
     var best = null;
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     var node;
@@ -173,7 +173,7 @@
       }
     }
 
-    // 方法2: 遍历所有元素找精确匹配
+    // 鏂规硶2: 閬嶅巻鎵€鏈夊厓绱犳壘绮剧‘鍖归厤
     if (!best) {
       var allEls = document.querySelectorAll("div, li, a, span, button");
       for (var i = 0; i < allEls.length; i++) {
@@ -191,15 +191,15 @@
     if (!best) { console.log("[CT] clickCand: not found"); return false; }
 
     try {
-      // 找可点击的父元素
+      // 鎵惧彲鐐瑰嚮鐨勭埗鍏冪礌
       var clickTarget = best.closest("a, button, [role=button], [role=link]") || best;
       var r = clickTarget.getBoundingClientRect();
 
-      // 模拟鼠标移动（防检测）
+      // 妯℃嫙榧犳爣绉诲姩锛堥槻妫€娴嬶級
       clickTarget.dispatchEvent(new MouseEvent("mouseover", {bubbles: true}));
       await sleep(rand(50, 200));
 
-      // 点击
+      // 鐐瑰嚮
       clickTarget.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, button: 0}));
       await sleep(rand(30, 80));
       clickTarget.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, button: 0}));
@@ -214,7 +214,7 @@
     }
   }
 
-  // ===== 发送消息 (多层策略) =====
+  // ===== 鍙戦€佹秷鎭?(澶氬眰绛栫暐) =====
   async function sendMsg(text) {
   console.log("[CT] sendMsg");
   return new Promise(function(resolve) {
@@ -223,7 +223,7 @@
     }, 12000);
     
     try {
-      // 找所有可能的输入元素
+      // 鎵炬墍鏈夊彲鑳界殑杈撳叆鍏冪礌
       var inputEl = null;
       var sels = ["[contenteditable="true"]","[contenteditable]","[role="textbox"]","textarea","input[type="text"]"];
       for (var si = 0; si < sels.length; si++) {
@@ -241,13 +241,13 @@
         return;
       }
       
-      // 聚焦输入
+      // 鑱氱劍杈撳叆
       inputEl.focus();
       inputEl.click();
       
       setTimeout(function() {
         try {
-          // 写入文本 (简化: 一次性写入)
+          // 鍐欏叆鏂囨湰 (绠€鍖? 涓€娆℃€у啓鍏?
           if (inputEl.isContentEditable) {
             inputEl.innerHTML = "";
             try { document.execCommand("insertText", false, text); } catch(e) { inputEl.innerHTML = text; }
@@ -262,7 +262,7 @@
             inputEl.dispatchEvent(new Event("input", {bubbles: true}));
           }
           
-          // 找发送按钮
+          // 鎵惧彂閫佹寜閽?
           setTimeout(function() {
             try {
               var sendBtn = null;
@@ -273,7 +273,7 @@
                   sendBtn = btns[i]; break;
                 }
               }
-              // 位置兜底
+              // 浣嶇疆鍏滃簳
               if (!sendBtn && inputEl) {
                 var ir = inputEl.getBoundingClientRect();
                 var best = null, bestD = 9999;
@@ -284,14 +284,22 @@
                     if (d < bestD) { bestD = d; best = btns[i]; }
                   }
                 }
-                if (best && bestD < 500) sendBtn = best;
+                if (best && bestD < 500) sendBtn = best;\r\n              // 终极兜底: 输入框右下角最近的可点击元素\r\n              if (!sendBtn) {\r\n                var allEls = document.querySelectorAll("button, a, [role=button], [class*=send], [class*=submit]");\r\n                var ir2 = inputEl.getBoundingClientRect();\r\n                for (var i = 0; i < allEls.length; i++) {\r\n                  try { allEls[i].click(); } catch(e) {}\r\n                }\r\n              }
               }
               
               if (sendBtn) {
-                sendBtn.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0}));
+                // Method 1: native click
+                try { sendBtn.click(); } catch(e) {}
+                // Method 2: React direct handler call
+                try {
+                  var propsKey = Object.keys(sendBtn).find(function(k) { return k.indexOf("__reactProps") >= 0 || k.indexOf("__reactEventHandlers") >= 0; });
+                  if (propsKey && sendBtn[propsKey] && sendBtn[propsKey].onClick) { sendBtn[propsKey].onClick(); }
+                } catch(e) {}
+                // Method 3: MouseEvent dispatch
+                sendBtn.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0, cancelable: true}));
               } else {
                 inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true}));
-                inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));
+                inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));\r\n              // Also try Enter + Ctrl\r\n              inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", ctrlKey: true, keyCode: 13, bubbles: true}));\r\n              inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", ctrlKey: true, keyCode: 13, bubbles: true}));
               }
               clearTimeout(timer);
               resolve({type: "status", data: "sent"});
@@ -312,7 +320,7 @@
   });
 }
 
-// ===== 读取聊天 =====// ===== 读取聊天 =====
+// ===== 璇诲彇鑱婂ぉ =====// ===== 璇诲彇鑱婂ぉ =====
   function readChat() {
     var result = {messages: [], full_text: ""};
     var midX = window.innerWidth * 0.4;
@@ -335,10 +343,10 @@
     return result;
   }
 
-  // ===== 页面诊断 =====
+  // ===== 椤甸潰璇婃柇 =====
   function scanDetail() {
     var result = {url: location.href, title: document.title, viewport: window.innerWidth+"x"+window.innerHeight, bodyLength: (document.body.innerText||"").length, elements: [], inputs: [], allText: []};
-    // 收集所有可见文本
+    // 鏀堕泦鎵€鏈夊彲瑙佹枃鏈?
     var textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     var txtNode;
     while (txtNode = textWalker.nextNode()) {
@@ -366,7 +374,7 @@
     return result;
   }
 
-  // ===== 消息监听 =====
+  // ===== 娑堟伅鐩戝惉 =====
   chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
     console.log("[CT] cmd:", msg.cmd, JSON.stringify(msg.params || {}).slice(0,60));
 
@@ -402,12 +410,12 @@
     return true;
   });
 
-  // 通知后台
+  // 閫氱煡鍚庡彴
   chrome.runtime.sendMessage({type: "connected", data: {url: location.href, title: document.title}});
 
-  // 心跳
+  // 蹇冭烦
   setInterval(function() { chrome.runtime.sendMessage({type: "ping"}); }, 15000);
 
-  console.log("[CT] BOSS直聘助手 v6.1 加载完成");
+  console.log("[CT] BOSS鐩磋仒鍔╂墜 v6.1 鍔犺浇瀹屾垚");
 })();
 
