@@ -1,4 +1,4 @@
-(function() {
+﻿(function() {
   "use strict";
 
   function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
@@ -304,6 +304,38 @@
 
     await sleep(rand(300, 800));
 
+    // ===== React Fiber state sync =====
+    try {
+      var fe = inputEl;
+      var ft = text;
+      while (fe && fe !== document.body) {
+        var fk = Object.keys(fe).find(function(k) { return k.indexOf("__reactFiber") >= 0; });
+        if (fk) {
+          var fn = fe[fk];
+          var fd = 0;
+          while (fn && fd < 30) {
+            try {
+              if (fn.memoizedState) {
+                var hh = fn.memoizedState;
+                while (hh) {
+                  if (typeof hh.memoizedState === 'string' && hh.memoizedState.length < 200 && ft.indexOf(hh.memoizedState) >= 0) {
+                    hh.memoizedState = ft;
+                    if (hh.queue) hh.queue.lastRenderedState = ft;
+                    break;
+                  }
+                  hh = hh.next;
+                }
+              }
+            } catch(e) {}
+            fn = fn.return;
+            fd++;
+          }
+        }
+        fe = fe.parentElement;
+      }
+      await sleep(200);
+    } catch(e) { console.log("[CT] fiber sync error:", e.message); }
+ 
     // ===== 暴力发送: 尝试6种策略 =====
     console.log("[CT] trying send strategies...");
 
@@ -551,10 +583,7 @@
       return false;
     }
     await sleep(2000 + rand(0, 1000));
-    console.log("send confirmed - input is empty");
-    console.log("send done");
-    return true;await sleep(2000 + rand(0, 1000));
-    console.log("[CT] send done");
+    console.log("[CT] send confirmed - input is empty");
     return true;
   }
 
