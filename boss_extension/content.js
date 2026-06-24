@@ -30,10 +30,10 @@
         if (r.width < 50 || r.height < 20) return null;
         var lines = text.split("\n").filter(function(l) { return l.trim(); });
         if (lines.length === 0) return null;
-        var name = lines[0].trim().split(/[\s\xA0]+/)[0];
+        var name = lines[0].trim();
+        name = name.split(/[\s\xA0]+/)[0];
+        name = name.replace(/\s*\d{1,2}:\d{2}.*$/, "");
         if (name.length < 1 || name.length > 20 || /^\d+$/.test(name)) return null;
-        if (name === "\u5df2\u8bfb" || name === "\u672a\u8bfb" || name === "\u65b0\u6d88\u606f" || name === "\u65b0" || name.length < 2) return null;
-        if (lines.length < 2) return null;
         var lastMsg = lines.length > 1 ? lines[1].trim().slice(0, 80) : "";
         var unreadNum = 0;
         var children = item.querySelectorAll("*");
@@ -41,15 +41,11 @@
           var t = (children[j].innerText || "").trim();
           if (/^\d{1,2}$/.test(t)) { var n = parseInt(t, 10); if (n > 0 && n < 100) unreadNum = n; }
         }
-        // Check for 已读 - walk up DOM tree
+        // Check for \u5df2\u8bfb - only check item + direct parent
         var hasReadStatus = false;
         try {
-          var cp = item;
-          for (var cd = 0; cd < 10; cd++) {
-            if (!cp || cp === document.body) break;
-            if ((cp.innerText || "").indexOf("\u5df2\u8bfb") >= 0) { hasReadStatus = true; break; }
-            cp = cp.parentElement;
-          }
+          var fullText = (item.innerText || "") + " " + ((item.parentElement && item.parentElement.innerText) || "");
+          if (fullText.indexOf("\u5df2\u8bfb") >= 0) { hasReadStatus = true; }
         } catch(e) {}
         return {name: name.slice(0,20), last_msg: lastMsg, has_unread: unreadNum > 0, unread_count: unreadNum, has_read: hasReadStatus, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)};
       } catch(e) { return null; }
@@ -76,7 +72,9 @@
         if (!t || t.length < 2 || t.length > 100) continue;
         var lines = t.split("\n").filter(function(l) { return l.trim(); });
         if (lines.length === 0) continue;
-        var name = lines[0].trim().split(/[\s\xA0]+/)[0];
+        var name = lines[0].trim();
+        name = name.split(/[\s\xA0]+/)[0];
+        name = name.replace(/\s*\d{1,2}:\d{2}.*$/, "");
         if (name.length > 20 || name.length < 1 || /^\d+$/.test(name) || seen[name]) continue;
         seen[name] = true;
         result.candidates.push({name: name.slice(0,20), last_msg: lines.length > 1 ? lines[1].trim().slice(0,80) : "", has_unread: false, unread_count: 0, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)});
