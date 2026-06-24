@@ -419,6 +419,51 @@
       }
     } catch(e) {}
 
+    // Phase 7: 终极方案 - 遍历DOM找发送按钮
+    try {
+      // 找输入框右下角所有可能的发送按钮
+      var ir = inputEl.getBoundingClientRect();
+      var viewH = window.innerHeight;
+      var viewW = window.innerWidth;
+      
+      // 搜索发送图标区域 (右下角)
+      var allElements = document.querySelectorAll("span, i, button, div, svg");
+      for (var ci = 0; ci < allElements.length; ci++) {
+        var cel = allElements[ci];
+        var cr = cel.getBoundingClientRect();
+        // 在输入框附近右下角
+        if (cr.width < 10 || cr.height < 10) continue;
+        if (cr.top < ir.top - 80 || cr.top > ir.bottom + 60) continue;
+        if (cr.left < viewW * 0.6) continue;
+        
+        var ctag = cel.tagName.toLowerCase();
+        var ccls = (cel.className || "").toLowerCase();
+        var ctitle = (cel.title || cel.getAttribute("aria-label") || "").toLowerCase();
+        
+        // 尝试点击所有有可能是发送按钮的元素
+        if (ccls.indexOf("send") >= 0 || ccls.indexOf("fabu") >= 0 || ccls.indexOf("chat") >= 0 || ccls.indexOf("send") >= 0 || ccls.indexOf("btn") >= 0 || ctag === "button" || ctag === "i" || ctag === "svg") {
+          // 多种点击方式
+          try { cel.click(); } catch(e) {}
+          cel.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, button: 0}));
+          cel.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, button: 0}));
+          cel.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0}));
+          cel.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, pointerId: 1}));
+          cel.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, pointerId: 1}));
+          
+          // 如果SVG图标有父级button, 也点击
+          if (ctag === "svg" || ctag === "i") {
+            var parentBtn = cel.closest("button, [role=button], a") || cel.parentElement;
+            if (parentBtn) {
+              try { parentBtn.click(); } catch(e) {}
+              parentBtn.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, button: 0}));
+              parentBtn.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, button: 0}));
+              parentBtn.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0}));
+            }
+          }
+        }
+      }
+    } catch(e) { console.log("[CT] Phase 7 error:", e.message); }
+
     await sleep(2000 + rand(0, 1000));
     console.log("[CT] send done");
     return true;
@@ -522,3 +567,4 @@
 
   console.log("[CT] BOSS直聘助手 v6.1 加载完成");
 })();
+
