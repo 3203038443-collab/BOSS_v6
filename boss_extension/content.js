@@ -11,6 +11,27 @@
     var viewH = window.innerHeight;
     var seen = {};
 
+    function isTimeLike(text) {
+      text = (text || "").trim();
+      return /^(\d{1,2}:\d{2}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}|昨天|前天|刚刚|上午|下午|晚上|凌晨|星期[一二三四五六日天])$/.test(text);
+    }
+
+    function cleanCandidateName(line) {
+      var text = (line || "").replace(/\s+/g, " ").trim();
+      if (!text) return "";
+      text = text.replace(/\s+(昨天|前天|刚刚|上午|下午|晚上|凌晨|\d{1,2}:\d{2}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})$/, "").trim();
+      var parts = text.split(" ").filter(function(part) { return part && !isTimeLike(part); });
+      if (parts.length === 0) return "";
+      return parts[0].trim();
+    }
+
+    function getPreviewStatus(lines) {
+      var preview = lines.length > 1 ? lines[1].trim() : "";
+      if (preview.indexOf("[已读]") === 0) return true;
+      if (preview.indexOf("[送达]") === 0) return false;
+      return null;
+    }
+
     // 策略1: 找左侧面板
     var panels = document.querySelectorAll("div");
     var bestPanel = null, bestArea = 0;
@@ -30,8 +51,8 @@
         if (r.width < 50 || r.height < 20) return null;
         var lines = text.split("\n").filter(function(l) { return l.trim(); });
         if (lines.length === 0) return null;
-        var name = lines[0].trim();
-        if (name.length < 1 || name.length > 20 || /^\d+$/.test(name)) return null;
+        var name = cleanCandidateName(lines[0]);
+        if (!name || name.length < 1 || name.length > 20 || /^\d+$/.test(name) || isTimeLike(name)) return null;
         var lastMsg = lines.length > 1 ? lines[1].trim().slice(0, 80) : "";
         var unreadNum = 0;
         var children = item.querySelectorAll("*");
@@ -39,14 +60,12 @@
           var t = (children[j].innerText || "").trim();
           if (/^\d{1,2}$/.test(t)) { var n = parseInt(t, 10); if (n > 0 && n < 100) unreadNum = n; }
         }
-        // Check for \u5df2\u8bfb (\u5df2\u8bfb) indicator
+        // Check for \u5df2\u8bfb - only check item + direct parent
         var hasReadStatus = false;
         try {
-          if (item && item.parentElement) {
-            var pt = item.parentElement.innerText || "";
-            if (pt.indexOf("\u5df2\u8bfb") >= 0 || pt.indexOf("read") >= 0 || item.querySelector("[class*=read]") || item.querySelector("[class*=yidu]")) {
-              hasReadStatus = true;
-            }
+          var previewStatus = getPreviewStatus(lines);
+          if (previewStatus !== null) {
+            hasReadStatus = previewStatus;
           }
         } catch(e) {}
         return {name: name.slice(0,20), last_msg: lastMsg, has_unread: unreadNum > 0, unread_count: unreadNum, has_read: hasReadStatus, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)};
@@ -74,10 +93,10 @@
         if (!t || t.length < 2 || t.length > 100) continue;
         var lines = t.split("\n").filter(function(l) { return l.trim(); });
         if (lines.length === 0) continue;
-        var name = lines[0].trim();
-        if (name.length > 20 || name.length < 1 || /^\d+$/.test(name) || seen[name]) continue;
+        var name = cleanCandidateName(lines[0]);
+        if (!name || name.length > 20 || name.length < 1 || /^\d+$/.test(name) || isTimeLike(name) || seen[name]) continue;
         seen[name] = true;
-        result.candidates.push({name: name.slice(0,20), last_msg: lines.length > 1 ? lines[1].trim().slice(0,80) : "", has_unread: false, unread_count: 0, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)});
+        result.candidates.push({name: name.slice(0,20), last_msg: lines.length > 1 ? lines[1].trim().slice(0,80) : "", has_unread: false, unread_count: 0, has_read: getPreviewStatus(lines) === true, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)});
       }
     }
 
@@ -137,7 +156,7 @@
     }
 
     // 策略7: 暴力文本收集 - 收集页面左侧所有可见文本节点的全部内容
-    if (result.debug.startsWith("ultimate") || result.candidates.length < 3) {
+    if (result.candidates.length === 0) {
       result.debug = "textDumpAll";
       var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
       var node;
@@ -148,7 +167,7 @@
         textSeen[t] = true;
         var r = node.parentElement.getBoundingClientRect();
         if (r.left > viewW * 0.55 || r.top < 30 || r.width === 0) continue;
-        if (t.length <= 20 && !/^\d+$/.test(t) && !seen[t]) {
+        if (t.length <= 20 && !/^\d+$/.test(t) && !isTimeLike(t) && !seen[t]) {
           seen[t] = true;
           result.candidates.push({name: t.slice(0,20), last_msg: "", has_unread: false, x: Math.round(r.left), y: Math.round(r.top)});
         }
@@ -304,6 +323,80 @@
 
     await sleep(rand(300, 800));
 
+    // ===== React Fiber state sync =====
+    try {
+      var fe = inputEl;
+      var ft = text;
+      while (fe && fe !== document.body) {
+        var fk = Object.keys(fe).find(function(k) { return k.indexOf("__reactFiber") >= 0; });
+        if (fk) {
+          var fn = fe[fk];
+          var fd = 0;
+          while (fn && fd < 30) {
+            try {
+              if (fn.memoizedState) {
+                var hh = fn.memoizedState;
+                while (hh) {
+                  if (typeof hh.memoizedState === 'string' && hh.memoizedState.length < 200 && ft.indexOf(hh.memoizedState) >= 0) {
+                    hh.memoizedState = ft;
+                    if (hh.queue) hh.queue.lastRenderedState = ft;
+                    break;
+                  }
+                  hh = hh.next;
+                }
+              }
+            } catch(e) {}
+            fn = fn.return;
+            fd++;
+          }
+        }
+        fe = fe.parentElement;
+      }
+      await sleep(200);
+    } catch(e) { console.log("[CT] fiber sync error:", e.message); }
+ 
+    // ===== Primary: re-focus input + Enter key (user confirmed this works) =====
+    try {
+      inputEl.focus();
+      inputEl.click();
+    } catch(e) {}
+    await sleep(rand(300, 600));
+    // Move cursor to end
+    try {
+      var sr = window.getSelection();
+      if (sr) {
+        var cr = document.createRange();
+        cr.selectNodeContents(inputEl);
+        cr.collapse(false);
+        sr.removeAllRanges();
+        sr.addRange(cr);
+      }
+    } catch(e) {}
+    // Dispatch compositionend so React knows typing is finished
+    try { inputEl.dispatchEvent(new CompositionEvent("compositionend", {bubbles: true, cancelable: true})); } catch(e) {}
+    await sleep(rand(100, 200));
+    // Send via Enter key (input is now focused)
+    var enterEvent = {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true};
+    inputEl.dispatchEvent(new KeyboardEvent("keydown", enterEvent));
+    inputEl.dispatchEvent(new KeyboardEvent("keypress", enterEvent));
+    inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, composed: true}));
+    // Also try React onKeyDown handler directly
+    try {
+      var rk = Object.keys(inputEl).find(function(k) { return k.indexOf("__reactProps") >= 0; });
+      if (rk) {
+        var rp = inputEl[rk];
+        if (rp && rp.onKeyDown) {
+          rp.onKeyDown({key: "Enter", keyCode: 13, which: 13, target: inputEl, currentTarget: inputEl, bubbles: true, cancelable: true, preventDefault: function(){}, stopPropagation: function(){}});
+        }
+      }
+    } catch(e) {}
+    await sleep(1200);
+    // Check if message was sent
+    var ct = "";
+    try { ct = inputEl.isContentEditable ? (inputEl.innerText || "").trim() : (inputEl.value || "").trim(); } catch(e) {}
+    if (!ct) { console.log("[CT] sent via Enter key"); return true; }
+    console.log("[CT] Enter approach failed, trying fallback strategies...");
+ 
     // ===== 暴力发送: 尝试6种策略 =====
     console.log("[CT] trying send strategies...");
 
@@ -551,10 +644,7 @@
       return false;
     }
     await sleep(2000 + rand(0, 1000));
-    console.log("send confirmed - input is empty");
-    console.log("send done");
-    return true;await sleep(2000 + rand(0, 1000));
-    console.log("[CT] send done");
+    console.log("[CT] send confirmed - input is empty");
     return true;
   }
 
@@ -582,7 +672,35 @@
   }
 
   // ===== 页面诊断 =====
-  function scanDetail() {
+  
+﻿  // ===== Check if current chat has been read =====
+  function checkIfRead() {
+    try {
+      var midX = window.innerWidth * 0.4;
+      var maxArea = 0, container = null;
+      var divs = document.querySelectorAll("div");
+      for (var i = 0; i < divs.length; i++) {
+        var r = divs[i].getBoundingClientRect();
+        if (r.left > midX && r.width > 200 && r.top < window.innerHeight * 0.7) {
+          var area = r.width * r.height;
+          if (area > maxArea) { maxArea = area; container = divs[i]; }
+        }
+      }
+      if (!container) return {is_read: false};
+      var allEls = container.querySelectorAll("*");
+      for (var i = 0; i < allEls.length; i++) {
+        var t = (allEls[i].innerText || "").trim();
+        if (t.indexOf("\u5df2\u8bfb") >= 0 && t.length < 10) {
+          return {is_read: true};
+        }
+      }
+      return {is_read: false};
+    } catch(e) {
+      return {is_read: false, error: e.message};
+    }
+  }
+
+function scanDetail() {
     var result = {url: location.href, title: document.title, viewport: window.innerWidth+"x"+window.innerHeight, bodyLength: (document.body.innerText||"").length, elements: [], inputs: [], allText: []};
     // 收集所有可见文本
     var textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
@@ -626,6 +744,9 @@
         break;
       case "read_chat":
         sendResponse({type: "chat_content", data: readChat()});
+        break;
+      case "check_read":
+        sendResponse({type: "read_status", data: checkIfRead()});
         break;
       case "scan_detail":
         sendResponse({type: "detail", data: scanDetail()});
@@ -676,7 +797,9 @@
             sendMsg(msg.params.text).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed"})); });
           } else if (msg.cmd === "read_chat") {
             cws.send(JSON.stringify({type: "chat_content", data: readChat()}));
-          } else if (msg.cmd === "scan_detail") {
+                  } else if (msg.cmd === "check_read") {
+            cws.send(JSON.stringify({type: "read_status", data: checkIfRead()}));
+} else if (msg.cmd === "scan_detail") {
             cws.send(JSON.stringify({type: "detail", data: scanDetail()}));
           } else if (msg.cmd === "ping") {
             cws.send(JSON.stringify({type: "pong", data: "ok"}));

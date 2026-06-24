@@ -33,6 +33,7 @@ class Bot:
         self.ws = None
         self.connected = False
         self.candidates = []
+        self.last_read_status = None
         self.actions = 0
         self.max_actions = 15
         self.loop = None
@@ -62,8 +63,13 @@ class Bot:
                     print("  扫描到 " + str(len(self.candidates)) + " 个候选人:")
                     print("  " + "=" * 45)
                     for i, c in enumerate(self.candidates, 1):
-                        u = " [新消息]" if c.get("has_unread") else ""
-                        print("    " + str(i).rjust(2) + ". " + c.get("name", "?") + u)
+                        if c.get("has_read"):
+                            s = "【已读】"
+                        elif c.get("has_unread"):
+                            s = " [新消息]"
+                        else:
+                            s = "【未读】"
+                        print("    " + str(i).rjust(2) + ". " + c.get("name", "?") + s)
                     if not self.candidates:
                         print("  (未找到候选人，可能页面结构变化)")
                 elif t == "chat_content":
@@ -102,6 +108,9 @@ class Bot:
                             print("  [!] " + s)
                         else:
                             print("  [i] " + s)
+                elif t == "read_status":
+                    self.last_read_status = d
+                    print("  [\u5df2\u8bfb] " + ("\u5df2\u8bfb" if d.get("is_read") else "\u672a\u8bfb"))
                 elif t == "error":
                     s = d
                     if isinstance(s, str):
@@ -251,11 +260,15 @@ class Bot:
                 ok = (await self.async_input("  确认? (y/n): ")).strip().lower()
                 if ok != "y": continue
                 total = len(self.candidates)
+                sent_names = set()
                 sent = 0
                 for i, ca in enumerate(self.candidates):
                     if self.actions >= self.max_actions: break
                     name = ca.get("name", "")
                     if not name: continue
+                    if name in sent_names:
+                        print("  ["+str(i+1)+"/"+str(total)+"] " + name + " - 已发过跳过")
+                        continue
                     if sc == "2" or sc == "3":
                         if sc == "3":
                             has_read = ca.get("has_read", False)
@@ -277,7 +290,8 @@ class Bot:
                     await asyncio.sleep(self.rand_delay())
                     await self.cmd("send_message", {"text": TEMPLATES[s]})
                     await asyncio.sleep(self.rand_delay())
-                    sent += 1
+                    sent_names.add(name)
+                sent += 1
                     
                 print('  \u5df2\u53d1\u9001: ' + str(sent) + '/' + str(total))
             elif c == "8":
