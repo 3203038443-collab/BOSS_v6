@@ -566,7 +566,40 @@
   setInterval(function() { chrome.runtime.sendMessage({type: "ping"}); }, 15000);
 
   console.log("[CT] BOSS直聘助手 v6.1 加载完成");
+  // ===== 直连WebSocket(绕过background) =====
+  function connectDirectWS() {
+    try {
+      var cws = new WebSocket('ws://127.0.0.1:9876');
+      cws.onopen = function() {
+        console.log('[CT] 直连WS已连接');
+        cws.send(JSON.stringify({type: "connected", data: {url: location.href, title: document.title}}));
+      };
+      cws.onmessage = function(e) {
+        try {
+          var msg = JSON.parse(e.data);
+          console.log("[CT] 直连命令:", msg.cmd);
+          if (msg.cmd === "scan_candidates") {
+            cws.send(JSON.stringify({type: "candidates", data: scanAll()}));
+          } else if (msg.cmd === "click_candidate" && msg.params && msg.params.name) {
+            clickCand(msg.params.name).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "clicked" : "error:not_found"})); });
+          } else if (msg.cmd === "send_message" && msg.params && msg.params.text) {
+            sendMsg(msg.params.text).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed"})); });
+          } else if (msg.cmd === "read_chat") {
+            cws.send(JSON.stringify({type: "chat_content", data: readChat()}));
+          } else if (msg.cmd === "scan_detail") {
+            cws.send(JSON.stringify({type: "detail", data: scanDetail()}));
+          } else if (msg.cmd === "ping") {
+            cws.send(JSON.stringify({type: "pong", data: "ok"}));
+          }
+        } catch(ex) { console.log("[CT] 直连解析错误:", ex.message); }
+      };
+      cws.onclose = function() { console.log('[CT] 直连断开, 3秒重连'); setTimeout(connectDirectWS, 3000); };
+      cws.onerror = function() { console.log('[CT] 直连错误'); setTimeout(connectDirectWS, 3000); };
+    } catch(e) { console.log('[CT] 直连创建失败:', e.message); setTimeout(connectDirectWS, 3000); }
+  }
+  setTimeout(connectDirectWS, 500);
 })();
+
 
 
 
