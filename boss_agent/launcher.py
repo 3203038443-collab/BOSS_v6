@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import random, struct
+import random
 """BOSS直聘半自动助手v6.0 - 最终稳定版"""
 import asyncio, json, sys, subprocess, time, os
 from pathlib import Path
@@ -37,12 +37,12 @@ class Bot:
         self.max_actions = 15
         self.loop = None
         self.server = None
-        self.page_title = ""
         self.min_delay = 4
         self.max_delay = 10
 
     def rand_delay(self):
         return random.uniform(self.min_delay, self.max_delay)
+        self.page_title = ""
 
     async def handler(self, websocket):
         self.ws = websocket
@@ -241,38 +241,39 @@ class Bot:
                     await asyncio.sleep(3)
                 if not self.candidates:
                     continue
-                for k, v in TEMPLATES.items():
-                print("  " + k + ". " + v[:40] + "...")
                 print("  1.全部发送  2.仅未回复")
-                sc = (await self.async_input("  选择(1/2): ")).strip()
+                sc = (await self.async_input("  选择: ")).strip()
+                for k, v in TEMPLATES.items():
+                    print("  " + k + ". " + v[:40] + "...")
                 s = (await self.async_input("  模板: ")).strip()
                 if s not in TEMPLATES: continue
                 ok = (await self.async_input("  确认? (y/n): ")).strip().lower()
                 if ok != "y": continue
                 total = len(self.candidates)
-                sent_cnt = 0
+                sent = 0
                 for i, ca in enumerate(self.candidates):
-                if self.actions >= self.max_actions: break
-                name = ca.get("name", "")
-                if not name: continue
-                if sc == "2":                last_msg = ca.get("last_msg", "").strip()                if last_msg:                skip = False                for tk in TEMPLATES:                tv = TEMPLATES[tk]                if tv[:15] in last_msg or last_msg[:15] in tv:                skip = True; break                if skip:                print("  " + "[" + str(i+1) + "/" + str(total) + "] " + name + " - \u5df2\u53d1\u8fc7\u8df3\u8fc7")                continue
-                print("  " + "[" + str(i+1) + "/" + str(total) + "] " + name)
-                await self.cmd("click_candidate", {"name": name})
-                await asyncio.sleep(self.rand_delay())
-                await self.cmd("send_message", {"text": TEMPLATES[s]})
-                await asyncio.sleep(self.rand_delay())
-                sent_cnt += 1
-                self.actions += 1
-                print("  \u5df2\u53d1\u9001: " + str(sent_cnt) + "/" + str(total))                    if self.actions >= self.max_actions:
-                        break
+                    if self.actions >= self.max_actions: break
                     name = ca.get("name", "")
-                    if not name:
-                        continue
-                    print("  [" + str(i + 1) + "/" + str(len(self.candidates)) + "] " + name)
+                    if not name: continue
+                    if sc == "2":
+                        last_msg = ca.get("last_msg", "").strip()
+                        if last_msg:
+                            skip = False
+                            for tk in TEMPLATES:
+                                tv = TEMPLATES[tk]
+                                if tv[:15] in last_msg or last_msg[:15] in tv:
+                                    skip = True; break
+                            if skip:
+                                print('  [' + str(i+1) + '/' + str(total) + '] ' + name + ' - \u5df2\u53d1\u8fc7\u8df3\u8fc7')
+                                continue
+                    print('  [' + str(i+1) + '/' + str(total) + '] ' + name)
                     await self.cmd("click_candidate", {"name": name})
-                    await asyncio.sleep(4)
+                    await asyncio.sleep(self.rand_delay())
                     await self.cmd("send_message", {"text": TEMPLATES[s]})
                     await asyncio.sleep(self.rand_delay())
+                    sent += 1
+                    self.actions += 1
+                print('  \u5df2\u53d1\u9001: ' + str(sent) + '/' + str(total))
             elif c == "8":
                 print("  话术模板:")
                 for k, v in TEMPLATES.items():
