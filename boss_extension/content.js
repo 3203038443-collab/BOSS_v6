@@ -10,62 +10,81 @@
     var viewW = window.innerWidth;
     var viewH = window.innerHeight;
     var seen = {};
-    
-    // Smart scan: only elements with avatar IMG + Chinese name text
-    var allEls = document.querySelectorAll("div, li, a");
-    for (var i = 0; i < allEls.length; i++) {
-      var el = allEls[i];
-      var r = el.getBoundingClientRect();
-      if (r.left > viewW * 0.45 || r.width < 80 || r.height < 30) continue;
-      if (r.top < 30 || r.top > viewH * 0.9) continue;
-      var img = el.querySelector("img");
-      if (!img) continue;
-      var text = (el.innerText || "").trim();
-      if (!text || text.length < 3 || text.length > 120) continue;
-      var lines = text.split("\n").filter(function(l) { return l.trim(); });
-      if (lines.length === 0) continue;
-      var name = lines[0].trim();
-      if (name.length < 2 || name.length > 20 || /^\d+$/.test(name)) continue;
-      var norm = name.toLowerCase().replace(/\s/g, "");
-      if (seen[norm]) continue;
-      seen[norm] = true;
-      var lastMsg = lines.length > 1 ? lines[1].trim().slice(0, 80) : "";
-      var hasRead = false;
-      try {
-        var we = el;
-        for (var wd = 0; wd < 10; wd++) {
-          if (!we || we === document.body) break;
-          var wt = we.innerText || "";
-          if (wt.indexOf("\u5df2\u8bfb") >= 0) {
-            var ck = we.querySelectorAll("span, div, i, em");
-            for (var ci = 0; ci < ck.length; ci++) {
-              var ct2 = (ck[ci].innerText || "").trim();
-              if (ct2.indexOf("\u5df2\u8bfb") >= 0 && ct2.length < 10) { hasRead = true; break; }
-            }
-            if (hasRead) break;
-          }
-          we = we.parentElement;
-        }
-      } catch(ex) {}
-      var unreadNum = 0;
-      try {
-        var uKids = el.querySelectorAll("*");
-        for (var uj = 0; uj < uKids.length; uj++) {
-          var ut = (uKids[uj].innerText || "").trim();
-          if (/^\d{1,2}$/.test(ut)) { var n = parseInt(ut, 10); if (n > 0 && n < 100) unreadNum = n; }
-        }
-      } catch(ex) {}
-      result.candidates.push({
-        name: name.slice(0, 20),
-        last_msg: lastMsg,
-        has_unread: unreadNum > 0,
-        unread_count: unreadNum,
-        has_read: hasRead,
-        x: Math.round(r.left + r.width / 2),
-        y: Math.round(r.top + r.height / 2)
-      });
+
+    // Find chat panel on left
+    var panels = document.querySelectorAll("div");
+    var bestPanel = null, bestArea = 0;
+    for (var i = 0; i < panels.length; i++) {
+      var r = panels[i].getBoundingClientRect();
+      if (r.left >= 0 && r.left < viewW * 0.4 && r.width > 150 && r.height > 200) {
+        var area = r.width * r.height;
+        if (area > bestArea) { bestArea = area; bestPanel = panels[i]; }
+      }
     }
-    result.debug = "img_avatar_scan:" + result.candidates.length;
+
+    function tryExtract(el) {
+      try {
+        var r = el.getBoundingClientRect();
+        if (r.width < 60 || r.height < 25 || r.left > viewW * 0.45 || r.top < 30 || r.top > viewH * 0.9) return null;
+        var text = (el.innerText || "").trim();
+        if (!text || text.length < 4 || text.length > 200) return null;
+        var lines = text.split("\n").filter(function(l) { return l.trim(); });
+        if (lines.length < 2) return null;
+        var name = lines[0].trim();
+        if (name.length < 2 || name.length > 20 || /^\d+$/.test(name)) return null;
+        if (!/^[\u4e00-\u9fa5a-zA-Z]+$/.test(name)) return null;
+        var norm = name.toLowerCase().replace(/\s/g, "");
+        if (seen[norm]) return null;
+        seen[norm] = true;
+        var lastMsg = lines[1].trim().slice(0, 80);
+        var hasRead = false;
+        try {
+          var we = el;
+          for (var wd = 0; wd < 10; wd++) {
+            if (!we || we === document.body) break;
+            if ((we.innerText || "").indexOf("\u5df2\u8bfb") >= 0) { hasRead = true; break; }
+            we = we.parentElement;
+          }
+        } catch(ex) {}
+        var unreadNum = 0;
+        try {
+          var kids = el.querySelectorAll("*");
+          for (var kj = 0; kj < kids.length; kj++) {
+            var ut = (kids[kj].innerText || "").trim();
+            if (/^\d{1,2}$/.test(ut)) { var n = parseInt(ut, 10); if (n > 0 && n < 100) unreadNum = n; }
+          }
+        } catch(ex) {}
+        return {
+          name: name.slice(0, 20),
+          last_msg: lastMsg,
+          has_unread: unreadNum > 0,
+          unread_count: unreadNum,
+          has_read: hasRead,
+          x: Math.round(r.left + r.width / 2),
+          y: Math.round(r.top + r.height / 2)
+        };
+      } catch(ex) { return null; }
+    }
+
+    if (bestPanel) {
+      result.debug = "panel";
+      var items = bestPanel.querySelectorAll("li, div, a, [role=listitem], [class*=item], [class*=row], [class*=card], [class*=chat], [class*=list]");
+      for (var i = 0; i < items.length; i++) {
+        var c = tryExtract(items[i]);
+        if (c) result.candidates.push(c);
+      }
+    }
+
+    if (result.candidates.length < 3) {
+      result.debug += "_scan_all";
+      var allEls = document.querySelectorAll("div, li, a");
+      for (var i = 0; i < allEls.length; i++) {
+        var c = tryExtract(allEls[i]);
+        if (c) result.candidates.push(c);
+      }
+    }
+
+    result.debug += "_found:" + result.candidates.length;
     console.log("scanAll:", result.candidates.length, "candidates");
     return result;
   }function clickCand(name) {
