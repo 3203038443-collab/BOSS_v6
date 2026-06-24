@@ -1,0 +1,27 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+boss_agent/__pycache__/
+
+# Chrome profile - too big, never commit
+boss_agent/chrome_profile/
+
+# Temp test files
+test_scan.py
+test_chrome.py
+fix_bg.py
+fix_content.py
+fix_content2.py
+test_output.txt
+test_error.txt
+gen_launcher.py
+launcher_template.py
+gen_launcher_v2.py
+
+# Zip backups
+*.zip
+
+# OS
+Thumbs.db
+.DS_Store

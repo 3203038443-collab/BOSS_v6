@@ -1,0 +1,67 @@
+﻿<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+body{width:380px;min-height:300px;font-family:system-ui,sans-serif;margin:0;padding:12px;background:#f0f2f5;color:#333}
+h2{margin:0 0 8px;font-size:16px;color:#1a1a1a}
+.status-bar{display:flex;align-items:center;gap:6px;font-size:12px;color:#666;margin-bottom:10px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.green{background:#4caf50}.dot.red{background:#f44336}.dot.yellow{background:#ff9800}
+.card{background:#fff;border-radius:8px;padding:10px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.label{font-size:11px;color:#888;margin-bottom:4px}
+.item{padding:4px 0;font-size:13px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f0f0f0}
+.item:last-child{border-bottom:none}
+.name{font-weight:500;color:#333}
+.badge{background:#f44336;color:#fff;border-radius:10px;padding:0 6px;font-size:10px;line-height:16px;min-width:16px;text-align:center}
+.empty{color:#999;font-size:12px;text-align:center;padding:10px 0}
+.btn{background:#1a73e8;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:12px;cursor:pointer}
+.btn:hover{background:#1557b0}.btn:disabled{background:#bbb;cursor:default}
+.btn-group{display:flex;gap:6px;justify-content:center;margin-top:8px}
+.info-text{font-size:11px;color:#999;text-align:center;margin-top:8px}
+</style></head><body>
+<h2>BOSS直聘助手 v6.0</h2>
+<div class="status-bar">
+  <span class="dot red" id="dot"></span>
+  <span id="st">等待连接...</span>
+  <span id="pg" style="margin-left:auto;font-size:11px"></span>
+</div>
+<div class="card">
+  <div class="label">候选人列表</div>
+  <div id="list"><div class="empty">点击扫描获取候选人</div></div>
+</div>
+<div class="btn-group">
+  <button class="btn" id="s1">扫描页面</button>
+</div>
+<div class="info-text" id="info">打开BOSS直聘聊天页面后点击扫描</div>
+
+<script>
+document.getElementById("s1").onclick=function(){
+  var l=document.getElementById("list");
+  l.innerHTML='<div class="empty">扫描中...</div>';
+  document.getElementById("info").textContent='正在扫描页面...';
+  chrome.tabs.query({active:true,currentWindow:true},function(t){
+    if (!t || !t[0]) { l.innerHTML='<div class="empty">未找到标签页</div>'; return; }
+    chrome.tabs.sendMessage(t[0].id,{cmd:"scan_candidates"},function(r){
+      if (chrome.runtime.lastError) {
+        l.innerHTML='<div class="empty">内容脚本未加载<br>请刷新BOSS直聘页面</div>';
+        document.getElementById("dot").className="dot red";
+        document.getElementById("st").textContent='未连接';
+        return;
+      }
+      if(r && r.data && r.data.candidates){
+        var h="";
+        for(var i=0;i<r.data.candidates.length;i++){
+          var c=r.data.candidates[i];
+          var bg=c.has_unread?"<span class=\"badge\">"+(c.unread_count||1)+"</span>":"";
+          h+="<div class=\"item\"><span class=\"name\">"+c.name+"</span>"+bg+"</div>";
+        }
+        l.innerHTML=h||"<div class=\"empty\">无候选人</div>";
+        document.getElementById("dot").className="dot green";
+        document.getElementById("st").textContent='已连接 | '+r.data.candidates.length+'人';
+        document.getElementById("info").textContent='扫描完成: '+r.data.candidates.length+' 个候选人';
+      } else {
+        l.innerHTML="<div class=\"empty\">扫描失败<br>请确认在BOSS直聘聊天页面</div>";
+      }
+    });
+  });
+};
+</script>
+</body></html>

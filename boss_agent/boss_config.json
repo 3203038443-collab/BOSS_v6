@@ -1,0 +1,29 @@
+﻿{
+    "version": "6.0",
+    "boss_config": {
+        "scan_interval_minutes": 15,
+        "max_actions_per_session": 15,
+        "min_delay_seconds": 3,
+        "max_delay_seconds": 8,
+        "daily_message_limit": 50,
+        "work_hours_start": "09:00",
+        "work_hours_end": "21:00"
+    },
+    "reply_templates": {
+        "1": "您好，看到您对这个岗位感兴趣，方便先简单了解一下您的情况吗？",
+        "2": "方便发一份简历过来吗？我看一下您的经历是否匹配。",
+        "3": "看了您的简历，觉得挺适合的，方便约个时间聊聊吗？",
+        "4": "感谢您的关注，目前不太匹配，祝您早日找到合适的工作！",
+        "5": "您好，之前有给您发过消息，不知道您是否还有意向呢？"
+    },
+    "candidate_filters": {
+        "min_experience_years": null,
+        "max_experience_years": null,
+        "target_positions": [],
+        "exclude_keywords": []
+    },
+    "chrome": {
+        "user_data_dir": "C:\\Users\\01\\AppData\\Local\\Google\\Chrome\\User Data",
+        "chrome_path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    }
+}

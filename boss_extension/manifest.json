@@ -1,0 +1,32 @@
+﻿{
+  "manifest_version": 3,
+  "name": "BOSS直聘助手",
+  "version": "6.0",
+  "description": "BOSS直聘半自动消息助手 - 安全无痕 v6.0",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://*.zhipin.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.zhipin.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "BOSS直聘助手 v6.0"
+  }
+}
