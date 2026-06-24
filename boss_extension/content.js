@@ -508,7 +508,52 @@
       console.log("[CT] Phase7 done");
     } catch(e) { console.log("[CT] Phase7 error:", e.message); }
 
+        // Verify: check if send was successful (input should be empty)
+    await sleep(800);
+    var verifyText = "";
+    try {
+      if (inputEl) {
+        verifyText = inputEl.isContentEditable ? (inputEl.innerText || "").trim() : (inputEl.value || "").trim();
+      }
+    } catch(e) {}
+    if (verifyText.length > 0) {
+      // Try once more - find SVG send button near input
+      try {
+        var svgEls = document.querySelectorAll("svg, i, span, button");
+        var ir2 = inputEl.getBoundingClientRect();
+        for (var vi = 0; vi < svgEls.length; vi++) {
+          var vr = svgEls[vi].getBoundingClientRect();
+          if (vr.width < 10 || vr.height < 10) continue;
+          if (vr.left < ir2.left + ir2.width * 0.6) continue;
+          if (vr.top < ir2.top - 80 || vr.top > ir2.bottom + 60) continue;
+          try { svgEls[vi].click(); } catch(ex) {}
+          var vKeys = Object.keys(svgEls[vi]).filter(function(k) { return k.indexOf("__reactProps") >= 0; });
+          for (var vi2 = 0; vi2 < vKeys.length; vi2++) {
+            var vProps = svgEls[vi][vKeys[vi2]];
+            if (vProps && vProps.onClick) {
+              try { vProps.onClick({target: svgEls[vi], currentTarget: svgEls[vi], bubbles: true, preventDefault: function(){}, stopPropagation: function(){}}); } catch(ex) {}
+            }
+          }
+          var vParent = svgEls[vi].closest("button, [role=button], a") || svgEls[vi].parentElement;
+          if (vParent && vParent !== svgEls[vi]) {
+            try { vParent.click(); } catch(ex) {}
+            var vpKeys = Object.keys(vParent).filter(function(k) { return k.indexOf("__reactProps") >= 0; });
+            for (var vpi = 0; vpi < vpKeys.length; vpi++) {
+              var vpProps = vParent[vpKeys[vpi]];
+              if (vpProps && vpProps.onClick) {
+                try { vpProps.onClick({target: vParent, currentTarget: vParent, bubbles: true, preventDefault: function(){}, stopPropagation: function(){}}); } catch(ex) {}
+              }
+            }
+          }
+        }
+      } catch(e) {}
+      await sleep(1000);
+      return false;
+    }
     await sleep(2000 + rand(0, 1000));
+    console.log("send confirmed - input is empty");
+    console.log("send done");
+    return true;await sleep(2000 + rand(0, 1000));
     console.log("[CT] send done");
     return true;
   }
@@ -644,6 +689,7 @@
   }
   setTimeout(connectDirectWS, 500);
 })();
+
 
 
 
