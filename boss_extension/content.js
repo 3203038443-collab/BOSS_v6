@@ -218,37 +218,49 @@
   async function sendMsg(text) {
     console.log("[CT] sendMsg");
 
-    // 找输入框
+    // 找输入框 (搜索所有可能的输入元素)
     var inputEl = null;
-    var leftBound = window.innerWidth * 0.3;
     var inputSelectors = [
-      'textarea', 'input[type="text"]',
-      '[contenteditable="true"]', '[role="textbox"]',
+      '[contenteditable="true"]', '[contenteditable]',
+      '[role="textbox"]', 'textarea', 'input[type="text"]',
+      '[class*=chat-input]', '[class*=msg-input]', '[class*=message-input]',
       '[class*=input]', '[class*=editor]',
-      '[class*=chat-input]', '[class*=msg-input]',
-      '[class*=message-input]', '[aria-label*=输入]'
+      '[class*=chat] [class*=ipt]', '[class*=send]',
+      '[aria-label*=输入]', '[placeholder*=说]', '[placeholder*=输入]'
     ];
     for (var s = 0; s < inputSelectors.length; s++) {
       var els = document.querySelectorAll(inputSelectors[s]);
       for (var e = 0; e < els.length; e++) {
         var r = els[e].getBoundingClientRect();
-        if (r.width > 80 && r.height > 20 && r.left > leftBound && r.top < window.innerHeight * 0.9) {
-          inputEl = els[e]; break;
-        }
+        if (r.width > 40 && r.height > 16) { inputEl = els[e]; break; }
       }
       if (inputEl) break;
     }
-
+ 
     // 兜底: 找底部最接近底部的可编辑元素
     if (!inputEl) {
-      var allInputs = document.querySelectorAll("textarea, [contenteditable], input[type=text]");
-      for (var i = 0; i < allInputs.length; i++) {
-        var r = allInputs[i].getBoundingClientRect();
-        if (r.width > 100 && r.height > 20) { inputEl = allInputs[i]; break; }
+      var bottomEl = null, bottomY = 0;
+      var allEditable = document.querySelectorAll("textarea, [contenteditable], input[type=text], [role=textbox]");
+      for (var i = 0; i < allEditable.length; i++) {
+        var r = allEditable[i].getBoundingClientRect();
+        if (r.width > 30 && r.height > 10 && r.bottom > bottomY) {
+          bottomY = r.bottom; bottomEl = allEditable[i];
+        }
       }
+      if (bottomEl) inputEl = bottomEl;
     }
-
-    if (!inputEl) { console.log("[CT] input not found"); return false; }
+ 
+    if (!inputEl) {
+      console.log("[CT] input not found");
+      // 终极兜底: 页面右下角找任何可聚焦元素
+      var allElems = document.querySelectorAll("div, span, p");
+      for (var i = 0; i < allElems.length; i++) {
+        if (allElems[i].isContentEditable || allElems[i].tagName === "TEXTAREA") {
+          inputEl = allElems[i]; break;
+        }
+      }
+      if (!inputEl) return false;
+    }
 
     // 聚焦
     inputEl.focus();
@@ -264,26 +276,39 @@
       inputEl.dispatchEvent(new Event("input", {bubbles: true}));
     }
 
-    // ***** 逐字输入 (带人类打字延迟，防检测) *****
-    for (var i = 0; i < text.length; i++) {
-      var ch = text[i];
-      var delay = rand(60, 180);
-      if (Math.random() < 0.1) delay += rand(400, 1500); // 10%概率停顿
-      await sleep(delay);
-
-      if (inputEl.isContentEditable) {
-        // 策略A: execCommand (contenteditable)
-        try { document.execCommand("insertText", false, ch); } catch(e) {}
-        inputEl.dispatchEvent(new Event("input", {bubbles: true}));
+    // ***** 输入文本 (React兼容) *****
+    if (inputEl.isContentEditable) {
+      // contenteditable: 一次设置innerHTML + React兼容事件
+      inputEl.innerHTML = "";
+      for (var i = 0; i < text.length; i++) {
+        var ch = text[i];
+        var delay = rand(30, 80);
+        await sleep(delay);
+        // 用execCommand插入每个字符 (触发React onChange)
+        try { document.execCommand("insertText", false, ch); } catch(e) {
+          // execCommand失败时直接append
+          inputEl.innerHTML += ch;
+        }
+        // 多种事件确保React捕获
+        inputEl.dispatchEvent(new Event("input", {bubbles: true, cancelable: true}));
+        inputEl.dispatchEvent(new InputEvent("input", {bubbles: true, cancelable: true, inputType: "insertText", data: ch}));
         inputEl.dispatchEvent(new Event("change", {bubbles: true}));
-      } else if (inputEl.tagName === "TEXTAREA" || inputEl.tagName === "INPUT") {
-        // 策略B: nativeInputValueSetter + input事件
+      }
+    } else if (inputEl.tagName === "TEXTAREA" || inputEl.tagName === "INPUT") {
+      // textarea/input: nativeInputValueSetter + input事件 (React兼容)
+      inputEl.value = "";
+      inputEl.dispatchEvent(new Event("input", {bubbles: true}));
+      for (var i = 0; i < text.length; i++) {
+        var ch = text[i];
+        var delay = rand(30, 80);
+        await sleep(delay);
         try {
           var proto = inputEl.tagName === "TEXTAREA" ? HTMLTextAreaElement : HTMLInputElement;
           var setter = Object.getOwnPropertyDescriptor(proto.prototype, "value").set;
           var cursor = inputEl.selectionStart || inputEl.value.length;
           var newVal = inputEl.value.slice(0, cursor) + ch + inputEl.value.slice(inputEl.selectionEnd || cursor);
           setter.call(inputEl, newVal);
+          inputEl.dispatchEvent(new InputEvent("input", {bubbles: true, cancelable: true, inputType: "insertText", data: ch}));
           inputEl.dispatchEvent(new Event("input", {bubbles: true}));
           inputEl.setSelectionRange(cursor + 1, cursor + 1);
         } catch(e) {
@@ -292,13 +317,12 @@
         }
       }
     }
-
-    await sleep(rand(500, 1200));
-
+    await sleep(rand(300, 600));
+ 
     // ===== 发送: 找发送按钮或按Enter =====
     var sendBtn = null;
     // 按文本找
-    var allBtns = document.querySelectorAll("button, [role=button], a, [class*=send]");
+    var allBtns = document.querySelectorAll("button, [role=button], a, [class*=send], [class*=btn], [class*=submit]");
     for (var i = 0; i < allBtns.length; i++) {
       var btnText = (allBtns[i].innerText || allBtns[i].textContent || allBtns[i].getAttribute("aria-label") || "").trim().toLowerCase();
       if (btnText.indexOf("发送") >= 0 || btnText === "send" || btnText === "enter") {
@@ -322,6 +346,22 @@
       if (closestBtn && closestDist < 200) sendBtn = closestBtn;
     }
 
+    // 第三个策略: 找输入框最近的按钮
+    if (!sendBtn && inputEl) {
+      var ir = inputEl.getBoundingClientRect();
+      var allEls = document.querySelectorAll("button, a, span, div, i");
+      var bestBtn = null, bestScore = Infinity;
+      for (var i = 0; i < allEls.length; i++) {
+        var r = allEls[i].getBoundingClientRect();
+        if (r.width < 24 || r.height < 24) continue;
+        if (r.top > ir.bottom + 100 || r.bottom < ir.top - 100) continue;
+        if (r.left < ir.left) continue;
+        var score = Math.abs(r.top - ir.top + ir.height/2) + Math.abs(r.left - (ir.left + ir.width + 20));
+        if (score < bestScore) { bestScore = score; bestBtn = allEls[i]; }
+      }
+      if (bestBtn && bestScore < 300) sendBtn = bestBtn;
+    }
+ 
     if (sendBtn) {
       sendBtn.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, button: 0}));
       await sleep(rand(30, 80));
@@ -330,11 +370,13 @@
       console.log("[CT] clicked send button");
     } else {
       // 按Enter发送
-      inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));
-      inputEl.dispatchEvent(new KeyboardEvent("keypress", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true}));
-      inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));
+      inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true}));
+      inputEl.dispatchEvent(new KeyboardEvent("keypress", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true}));
+      inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true}));
+      // 额外发送一个compositionend事件 (某些React版本需要)
+      inputEl.dispatchEvent(new CompositionEvent("compositionend", {bubbles: true, data: text}));
     }
-
+ 
     await sleep(2000 + rand(0, 1500));
     console.log("[CT] send done");
     return true;
