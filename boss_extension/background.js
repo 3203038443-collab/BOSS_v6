@@ -2,7 +2,7 @@
 // WebSocket桥接: Python服务器 <-> BOSS页面内容脚本
 
 var ws = null;
-var wsDebugPort = 9876;
+var wsDebugPort = 9878;
 var keepAliveInterval = null;
 var reconnectTimer = null;
 var wsRetryCount = 0;
@@ -171,3 +171,4 @@ chrome.alarms.onAlarm.addListener(function(alarm) {
 
 connect();
 log('后台服务已就绪 v6.1');
+
