@@ -110,62 +110,23 @@
       }
     }
 
-    // 策略5: TreeWalker收集左侧所有文本节点 (终极兜底)
-    if (result.candidates.length === 0) {
-      result.debug = "treeWalker_fallback";
-      try {
-        var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-        var tn, txtSeen = {};
-        while ((tn = tw.nextNode())) {
-          var t = (tn.textContent || "").trim();
-          if (!t || t.length < 2 || t.length > 20 || /^\d+$/.test(t) || t.indexOf("\n") >= 0) continue;
-          var r = tn.parentElement.getBoundingClientRect();
-          if (r.left > window.innerWidth * 0.5 || r.width === 0 || r.height === 0) continue;
-          if (/^[\u4e00-\u9fa5]{2,4}$/.test(t) || /^[a-zA-Z\u4e00-\u9fa5]{2,10}$/.test(t)) {
-            if (!txtSeen[t]) { txtSeen[t] = true; result.candidates.push({name: t.slice(0,20), last_msg: "", has_unread: false, x: Math.round(r.left), y: Math.round(r.top)}); }
-          }
-        }
-      } catch(e) { result.debug = "treeWalker_error"; }
+    // 策略5-7: 移除过度激进策略，结果已在下方去重过滤
+    // Dedup and filter low-quality candidates
+    var seenNames = {};
+    var cleanList = [];
+    for (var di = 0; di < result.candidates.length; di++) {
+      var dc = result.candidates[di];
+      var dn = (dc.name || "").trim();
+      if (!dn || dn.length < 2) continue;
+      var dk = dn.toLowerCase().replace(/\s/g, "");
+      if (seenNames[dk]) continue;
+      if (/^\d+$/.test(dn)) continue;
+      seenNames[dk] = true;
+      cleanList.push(dc);
     }
-    // 策略6: 终极兜底 - 收集所有可见文本中疑似人名的内容
-    if (result.candidates.length === 0) {
-      result.debug = "ultimateCatchAll";
-      var allElements = document.querySelectorAll("div, li, a, span, button, p, h1, h2, h3, h4");
-      for (var si = 0; si < allElements.length; si++) {
-        var el = allElements[si];
-        var r = el.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0 || r.left > viewW * 0.5) continue;
-        if (r.top < 50 || r.bottom > viewH) continue;
-        var t = (el.innerText || el.textContent || "").trim();
-        if (!t || t.length < 2 || t.length > 20) continue;
-        if (/^\d+$/.test(t) || seen[t]) continue;
-        if (/^[\u4e00-\u9fa5]{2,4}$/.test(t)) {
-          seen[t] = true;
-          result.candidates.push({name: t.slice(0,20), last_msg: "", has_unread: false, x: Math.round(r.left), y: Math.round(r.top)});
-        }
-      }
-    }
-
-    // 策略7: 暴力文本收集 - 收集页面左侧所有可见文本节点的全部内容
-    if (result.debug.startsWith("ultimate") || result.candidates.length < 3) {
-      result.debug = "textDumpAll";
-      var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-      var node;
-      var textSeen = {};
-      while ((node = walker.nextNode())) {
-        var t = (node.textContent || "").trim();
-        if (!t || t.length < 2 || textSeen[t]) continue;
-        textSeen[t] = true;
-        var r = node.parentElement.getBoundingClientRect();
-        if (r.left > viewW * 0.55 || r.top < 30 || r.width === 0) continue;
-        if (t.length <= 20 && !/^\d+$/.test(t) && !seen[t]) {
-          seen[t] = true;
-          result.candidates.push({name: t.slice(0,20), last_msg: "", has_unread: false, x: Math.round(r.left), y: Math.round(r.top)});
-        }
-      }
-    }
-
-        console.log("[CT] scanAll:", result.candidates.length, "candidates, debug:", result.debug);
+    result.candidates = cleanList;
+    result.debug += "_deduped:" + cleanList.length;
+    console.log("[CT] scanAll:", result.candidates.length, "candidates, debug:", result.debug);
     return result;
   }
 
