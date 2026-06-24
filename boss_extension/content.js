@@ -263,47 +263,110 @@
           }
           
           // 鎵惧彂閫佹寜閽?
-          setTimeout(function() {
+          
+          // Aggressive send: find and click the send button
+          var sendBtn = findSendButton(inputEl);
+          
+          if (sendBtn) {
+            // Method 1: native click
+            try { sendBtn.click(); } catch(e) {}
+            // Method 2: React __reactProps direct call
             try {
-              var sendBtn = null;
-              var btns = document.querySelectorAll("button, [role=button]");
-              for (var i = 0; i < btns.length; i++) {
-                var t = (btns[i].innerText || btns[i].textContent || "").trim().toLowerCase();
-                if (t.indexOf("\u53d1\u9001") >= 0 || t.indexOf("send") >= 0) {
-                  sendBtn = btns[i]; break;
-                }
-              }
-              // 浣嶇疆鍏滃簳
-              if (!sendBtn && inputEl) {
-                var ir = inputEl.getBoundingClientRect();
-                var best = null, bestD = 9999;
-                for (var i = 0; i < btns.length; i++) {
-                  var r = btns[i].getBoundingClientRect();
-                  if (r.left > ir.right - 50 && r.top > ir.top - 60 && r.top < ir.bottom + 60) {
-                    var d = Math.abs(r.right - ir.right) + Math.abs(r.top - (ir.top + ir.height/2));
-                    if (d < bestD) { bestD = d; best = btns[i]; }
-                  }
-                }
-                if (best && bestD < 500) sendBtn = best;\r\n              // 终极兜底: 输入框右下角最近的可点击元素\r\n              if (!sendBtn) {\r\n                var allEls = document.querySelectorAll("button, a, [role=button], [class*=send], [class*=submit]");\r\n                var ir2 = inputEl.getBoundingClientRect();\r\n                for (var i = 0; i < allEls.length; i++) {\r\n                  try { allEls[i].click(); } catch(e) {}\r\n                }\r\n              }
-              }
-              
-              if (sendBtn) {
-                // Method 1: native click
-                try { sendBtn.click(); } catch(e) {}
-                // Method 2: React direct handler call
-                try {
-                  var propsKey = Object.keys(sendBtn).find(function(k) { return k.indexOf("__reactProps") >= 0 || k.indexOf("__reactEventHandlers") >= 0; });
-                  if (propsKey && sendBtn[propsKey] && sendBtn[propsKey].onClick) { sendBtn[propsKey].onClick(); }
-                } catch(e) {}
-                // Method 3: MouseEvent dispatch
-                sendBtn.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0, cancelable: true}));
-              } else {
-                inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true}));
-                inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));\r\n              // Also try Enter + Ctrl\r\n              inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", ctrlKey: true, keyCode: 13, bubbles: true}));\r\n              inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", ctrlKey: true, keyCode: 13, bubbles: true}));
-              }
-              clearTimeout(timer);
-              resolve({type: "status", data: "sent"});
-            } catch(e) {
+              var sk = Object.keys(sendBtn).find(function(k) { return k.indexOf("__reactProps") >= 0 || k.indexOf("__reactEventHandlers") >= 0; });
+              if (sk && sendBtn[sk] && sendBtn[sk].onClick) { sendBtn[sk].onClick(); }
+            } catch(e) {}
+            // Method 3: MouseEvent dispatch
+            sendBtn.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0, cancelable: true}));
+          }
+          
+          // Also try Enter on input
+          try {
+            inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true}));
+            inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));
+            // Ctrl+Enter
+            inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, ctrlKey: true, bubbles: true}));
+            inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, ctrlKey: true, bubbles: true}));
+          } catch(e) {}
+          
+          clearTimeout(timer);
+          resolve({type: "status", data: "sent"});
+        } catch(e) {
+          clearTimeout(timer);
+          resolve({type: "error", data: "send_err3:" + (e.message || e)});
+        }
+      }, 400);
+    } catch(e) {
+      clearTimeout(timer);
+      resolve({type: "error", data: "send_err2:" + (e.message || e)});
+    }
+  }, 300);
+} catch(e) {
+  clearTimeout(timer);
+  resolve({type: "error", data: "send_err1:" + (e.message || e)});
+}
+};
+
+function findSendButton(inputEl) {
+  // Helper: find ANY clickable element near the input that looks like a send button
+  var candidates = [];
+  var inputRect = inputEl.getBoundingClientRect();
+  
+  // Strategy 1: Find ALL elements with text matching
+  var allEls = document.querySelectorAll("button, [role=button], a, span, div, i, svg");
+  for (var i = 0; i < allEls.length; i++) {
+    var el = allEls[i];
+    var r = el.getBoundingClientRect();
+    if (r.width < 20 || r.height < 20) continue;
+    // Near the bottom-right (chat input area)
+    if (r.top < inputRect.top - 80 || r.top > inputRect.bottom + 80) continue;
+    if (r.left < inputRect.left) continue;
+    
+    var t = (el.innerText || el.textContent || "").trim().toLowerCase();
+    // Score: higher = better match
+    var score = 0;
+    if (t.indexOf("发送") >= 0) score += 100;
+    if (t.indexOf("send") >= 0) score += 50;
+    if (t.indexOf("回复") >= 0) score += 30;
+    if (t === "" || t === " " || t === "\n") score += 5; // Icon buttons often have empty text
+    // Bonus for being to the right of the input
+    if (r.left > inputRect.right) score += 20;
+    // Bonus for being at similar height
+    var heightDiff = Math.abs(r.top - inputRect.top);
+    if (heightDiff < 30) score += 20;
+    if (heightDiff < 60) score += 10;
+    
+    if (score > 0) {
+      candidates.push({el: el, score: score});
+    }
+  }
+  
+  // Sort by score descending
+  candidates.sort(function(a,b) { return b.score - a.score; });
+  
+  if (candidates.length > 0) {
+    if (candidates[0].score > 10) return candidates[0].el;
+    // Low score - try multiple candidates
+    for (var i = 0; i < candidates.length && i < 3; i++) {
+      try { candidates[i].el.click(); } catch(e) {}
+    }
+    return candidates[0].el;
+  }
+  
+  // Strategy 2: Find the rightmost-interactive element in the bottom toolbar
+  var toolbar = null;
+  var allDivs = document.querySelectorAll("div");
+  for (var i = 0; i < allDivs.length; i++) {
+    var r = allDivs[i].getBoundingClientRect();
+    if (Math.abs(r.top - inputRect.top) < 50 && r.width > 200 && r.left > inputRect.left - 100) {
+      // This might be the toolbar
+      var lastChild = allDivs[i].lastElementChild || allDivs[i].children[allDivs[i].children.length - 1];
+      if (lastChild) { return lastChild; }
+    }
+  }
+  
+  return null;
+}
+ catch(e) {
               clearTimeout(timer);
               resolve({type: "error", data: "send_err3:" + (e.message || e)});
             }
