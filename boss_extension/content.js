@@ -336,6 +336,48 @@
       await sleep(200);
     } catch(e) { console.log("[CT] fiber sync error:", e.message); }
  
+    // ===== Primary: re-focus input + Enter key (user confirmed this works) =====
+    try {
+      inputEl.focus();
+      inputEl.click();
+    } catch(e) {}
+    await sleep(rand(300, 600));
+    // Move cursor to end
+    try {
+      var sr = window.getSelection();
+      if (sr) {
+        var cr = document.createRange();
+        cr.selectNodeContents(inputEl);
+        cr.collapse(false);
+        sr.removeAllRanges();
+        sr.addRange(cr);
+      }
+    } catch(e) {}
+    // Dispatch compositionend so React knows typing is finished
+    try { inputEl.dispatchEvent(new CompositionEvent("compositionend", {bubbles: true, cancelable: true})); } catch(e) {}
+    await sleep(rand(100, 200));
+    // Send via Enter key (input is now focused)
+    var enterEvent = {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true};
+    inputEl.dispatchEvent(new KeyboardEvent("keydown", enterEvent));
+    inputEl.dispatchEvent(new KeyboardEvent("keypress", enterEvent));
+    inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, composed: true}));
+    // Also try React onKeyDown handler directly
+    try {
+      var rk = Object.keys(inputEl).find(function(k) { return k.indexOf("__reactProps") >= 0; });
+      if (rk) {
+        var rp = inputEl[rk];
+        if (rp && rp.onKeyDown) {
+          rp.onKeyDown({key: "Enter", keyCode: 13, which: 13, target: inputEl, currentTarget: inputEl, bubbles: true, cancelable: true, preventDefault: function(){}, stopPropagation: function(){}});
+        }
+      }
+    } catch(e) {}
+    await sleep(1200);
+    // Check if message was sent
+    var ct = "";
+    try { ct = inputEl.isContentEditable ? (inputEl.innerText || "").trim() : (inputEl.value || "").trim(); } catch(e) {}
+    if (!ct) { console.log("[CT] sent via Enter key"); return true; }
+    console.log("[CT] Enter approach failed, trying fallback strategies...");
+ 
     // ===== 暴力发送: 尝试6种策略 =====
     console.log("[CT] trying send strategies...");
 
