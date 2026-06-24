@@ -241,7 +241,7 @@ class Bot:
                     await asyncio.sleep(3)
                 if not self.candidates:
                     continue
-                print("  1.全部发送  2.仅未回复")
+                print("  1.全部发送  2.仅未回复(未联系)  3.已读未回复")
                 sc = (await self.async_input("  选择: ")).strip()
                 for k, v in TEMPLATES.items():
                     print("  " + k + ". " + v[:40] + "...")
@@ -255,16 +255,21 @@ class Bot:
                     if self.actions >= self.max_actions: break
                     name = ca.get("name", "")
                     if not name: continue
-                    if sc == "2":
+                    if sc == "2" or sc == "3":
+                        if sc == "3":
+                            has_read = ca.get("has_read", False)
+                            if not has_read:
+                                print("  ["+str(i+1)+"/"+str(total)+"] " + name + " - \\u672a\\u8bfb\\u8df3\\u8fc7")
+                                continue
                         last_msg = ca.get("last_msg", "").strip()
-                        if last_msg:
+                        if sc == "2" and last_msg:
                             skip = False
                             for tk in TEMPLATES:
                                 tv = TEMPLATES[tk]
                                 if tv[:15] in last_msg or last_msg[:15] in tv:
                                     skip = True; break
                             if skip:
-                                print('  [' + str(i+1) + '/' + str(total) + '] ' + name + ' - \u5df2\u53d1\u8fc7\u8df3\u8fc7')
+                                print("  ["+str(i+1)+"/"+str(total)+"] " + name + " - \\u5df2\\u53d1\\u8fc7\\u8df3\\u8fc7")
                                 continue
                     print('  [' + str(i+1) + '/' + str(total) + '] ' + name)
                     await self.cmd("click_candidate", {"name": name})

@@ -39,7 +39,15 @@
           var t = (children[j].innerText || "").trim();
           if (/^\d{1,2}$/.test(t)) { var n = parseInt(t, 10); if (n > 0 && n < 100) unreadNum = n; }
         }
-        return {name: name.slice(0,20), last_msg: lastMsg, has_unread: unreadNum > 0, unread_count: unreadNum, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)};
+        // Check for \u5df2\u8bfb indicator
+            var hasReadStatus = false;
+            try {
+              var parentText = (item.parentElement.innerText || item.textContent || "");
+              if (parentText.indexOf("\u5df2\u8bfb") >= 0 || parentText.indexOf("read") >= 0 || item.querySelector("[class*=read]") || item.querySelector("[class*=yidu]")) {
+                hasReadStatus = true;
+              }
+            } catch(e) {}
+            return {name: name.slice(0,20), last_msg: lastMsg, has_unread: unreadNum > 0, unread_count: unreadNum, has_read: hasReadStatus, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)};
       } catch(e) { return null; }
     }
 
