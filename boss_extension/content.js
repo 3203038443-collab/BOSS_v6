@@ -1,17 +1,17 @@
-﻿(function() {
+(function() {
   "use strict";
 
   function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
   function rand(a, b) { return Math.random() * (b - a) + a; }
 
-  // ===== 鎵弿鍊欓€変汉 (澶氬眰绛栫暐) =====
+  // ===== 扫描候选人 (多层策略) =====
   function scanAll() {
     var result = {candidates: [], page_url: location.href, page_title: document.title, debug: ""};
     var viewW = window.innerWidth;
     var viewH = window.innerHeight;
     var seen = {};
 
-    // 绛栫暐1: 鎵惧乏渚ч潰鏉?
+    // 策略1: 找左侧面板
     var panels = document.querySelectorAll("div");
     var bestPanel = null, bestArea = 0;
     for (var i = 0; i < panels.length; i++) {
@@ -40,18 +40,18 @@
           if (/^\d{1,2}$/.test(t)) { var n = parseInt(t, 10); if (n > 0 && n < 100) unreadNum = n; }
         }
         // Check for \u5df2\u8bfb indicator
-            var hasReadStatus = false;
-            try {
-              var parentText = (item.parentElement.innerText || item.textContent || "");
-              if (parentText.indexOf("\u5df2\u8bfb") >= 0 || parentText.indexOf("read") >= 0 || item.querySelector("[class*=read]") || item.querySelector("[class*=yidu]")) {
-                hasReadStatus = true;
-              }
-            } catch(e) {}
-            return {name: name.slice(0,20), last_msg: lastMsg, has_unread: unreadNum > 0, unread_count: unreadNum, has_read: hasReadStatus, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)};
+        var hasReadStatus = false;
+        try {
+          var pt = (item.parentElement.innerText || item.textContent || "");
+          if (pt.indexOf("\u5df2\u8bfb") >= 0 || pt.indexOf("read") >= 0 || item.querySelector("[class*=read]") || item.querySelector("[class*=yidu]")) {
+            hasReadStatus = true;
+          }
+        } catch(e) {}
+        return {name: name.slice(0,20), last_msg: lastMsg, has_unread: unreadNum > 0, unread_count: unreadNum, has_read: hasReadStatus, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)};
       } catch(e) { return null; }
     }
 
-    // 绛栫暐2: 鍦ㄥ乏渚ч潰鏉垮唴鎵炬潯鐩?
+    // 策略2: 在左侧面板内找条目
     if (bestPanel) {
       result.debug = "panelFound";
       var items = bestPanel.querySelectorAll("li, div, [class*=item], [class*=row], [class*=card], [class*=chat], [class*=list]");
@@ -61,7 +61,7 @@
       }
     }
 
-    // 绛栫暐3: 鍏ㄩ〉闈㈡壘涓枃鍚嶏紙宸﹀崐鍖哄煙锛?
+    // 策略3: 全页面找中文名（左半区域）
     if (result.candidates.length === 0) {
       result.debug = "fallbackTextScan";
       var allEls = document.querySelectorAll("div, li, a, span, button");
@@ -79,7 +79,7 @@
       }
     }
 
-    // 绛栫暐4: 灏濊瘯鐢?role 灞炴€ф壘鍒楄〃
+    // 策略4: 尝试用 role 属性找列表
     if (result.candidates.length === 0) {
       result.debug = "roleListScan";
       var lists = document.querySelectorAll('[role="list"], [role="listbox"], [role="menu"]');
@@ -98,7 +98,7 @@
       }
     }
 
-    // 绛栫暐5: TreeWalker鏀堕泦宸︿晶鎵€鏈夋枃鏈妭鐐?(缁堟瀬鍏滃簳)
+    // 策略5: TreeWalker收集左侧所有文本节点 (终极兜底)
     if (result.candidates.length === 0) {
       result.debug = "treeWalker_fallback";
       try {
@@ -115,7 +115,7 @@
         }
       } catch(e) { result.debug = "treeWalker_error"; }
     }
-    // 绛栫暐6: 缁堟瀬鍏滃簳 - 鏀堕泦鎵€鏈夊彲瑙佹枃鏈腑鐤戜技浜哄悕鐨勫唴瀹?
+    // 策略6: 终极兜底 - 收集所有可见文本中疑似人名的内容
     if (result.candidates.length === 0) {
       result.debug = "ultimateCatchAll";
       var allElements = document.querySelectorAll("div, li, a, span, button, p, h1, h2, h3, h4");
@@ -127,14 +127,14 @@
         var t = (el.innerText || el.textContent || "").trim();
         if (!t || t.length < 2 || t.length > 20) continue;
         if (/^\d+$/.test(t) || seen[t]) continue;
-        if (/^[涓€-榫{2,4}$/.test(t)) {
+        if (/^[一-龥]{2,4}$/.test(t)) {
           seen[t] = true;
           result.candidates.push({name: t.slice(0,20), last_msg: "", has_unread: false, x: Math.round(r.left), y: Math.round(r.top)});
         }
       }
     }
 
-    // 绛栫暐7: 鏆村姏鏂囨湰鏀堕泦 - 鏀堕泦椤甸潰宸︿晶鎵€鏈夊彲瑙佹枃鏈妭鐐圭殑鍏ㄩ儴鍐呭
+    // 策略7: 暴力文本收集 - 收集页面左侧所有可见文本节点的全部内容
     if (result.debug.startsWith("ultimate") || result.candidates.length < 3) {
       result.debug = "textDumpAll";
       var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
@@ -157,11 +157,11 @@
     return result;
   }
 
-  // ===== 鐐瑰嚮鍊欓€変汉 =====
+  // ===== 点击候选人 =====
   async function clickCand(name) {
     console.log("[CT] clickCand:", name);
 
-    // 鏂规硶1: TreeWalker鎵炬枃鏈妭鐐?
+    // 方法1: TreeWalker找文本节点
     var best = null;
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     var node;
@@ -181,7 +181,7 @@
       }
     }
 
-    // 鏂规硶2: 閬嶅巻鎵€鏈夊厓绱犳壘绮剧‘鍖归厤
+    // 方法2: 遍历所有元素找精确匹配
     if (!best) {
       var allEls = document.querySelectorAll("div, li, a, span, button");
       for (var i = 0; i < allEls.length; i++) {
@@ -199,15 +199,15 @@
     if (!best) { console.log("[CT] clickCand: not found"); return false; }
 
     try {
-      // 鎵惧彲鐐瑰嚮鐨勭埗鍏冪礌
+      // 找可点击的父元素
       var clickTarget = best.closest("a, button, [role=button], [role=link]") || best;
       var r = clickTarget.getBoundingClientRect();
 
-      // 妯℃嫙榧犳爣绉诲姩锛堥槻妫€娴嬶級
+      // 模拟鼠标移动（防检测）
       clickTarget.dispatchEvent(new MouseEvent("mouseover", {bubbles: true}));
       await sleep(rand(50, 200));
 
-      // 鐐瑰嚮
+      // 点击
       clickTarget.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, button: 0}));
       await sleep(rand(30, 80));
       clickTarget.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, button: 0}));
@@ -222,16 +222,13 @@
     }
   }
 
-  // ===== 鍙戦€佹秷鎭?(澶氬眰绛栫暐) =====
-  async function sendMsg(text) {
+  // ===== 发送消息 (多层策略) =====
+  
+async function sendMsg(text) {
   console.log("[CT] sendMsg");
   return new Promise(function(resolve) {
-    var timer = setTimeout(function() {
-      resolve({type: "error", data: "send_timeout"});
-    }, 12000);
-    
+    var timer = setTimeout(function() { resolve({type: "error", data: "send_timeout"}); }, 12000);
     try {
-      // 鎵炬墍鏈夊彲鑳界殑杈撳叆鍏冪礌
       var inputEl = null;
       var sels = ["[contenteditable="true"]","[contenteditable]","[role="textbox"]","textarea","input[type="text"]"];
       for (var si = 0; si < sels.length; si++) {
@@ -242,157 +239,66 @@
         }
         if (inputEl) break;
       }
+      if (!inputEl) { clearTimeout(timer); resolve({type: "status", data: "error:input_not_found"}); return; }
       
-      if (!inputEl) {
-        clearTimeout(timer);
-        resolve({type: "status", data: "error:input_not_found"});
-        return;
-      }
-      
-      // 鑱氱劍杈撳叆
       inputEl.focus();
       inputEl.click();
       
       setTimeout(function() {
         try {
-          // 鍐欏叆鏂囨湰 (绠€鍖? 涓€娆℃€у啓鍏?
           if (inputEl.isContentEditable) {
             inputEl.innerHTML = "";
             try { document.execCommand("insertText", false, text); } catch(e) { inputEl.innerHTML = text; }
             inputEl.dispatchEvent(new Event("input", {bubbles: true}));
             inputEl.dispatchEvent(new Event("change", {bubbles: true}));
-          } else if (inputEl.tagName === "TEXTAREA" || inputEl.tagName === "INPUT") {
-            try {
-              var proto = inputEl.tagName === "TEXTAREA" ? HTMLTextAreaElement : HTMLInputElement;
-              var setter = Object.getOwnPropertyDescriptor(proto.prototype, "value").set;
-              setter.call(inputEl, text);
-            } catch(e) { inputEl.value = text; }
+          } else {
+            var proto = inputEl.tagName === "TEXTAREA" ? HTMLTextAreaElement : HTMLInputElement;
+            var setter = Object.getOwnPropertyDescriptor(proto.prototype, "value").set;
+            setter.call(inputEl, text);
             inputEl.dispatchEvent(new Event("input", {bubbles: true}));
           }
           
-          // 鎵惧彂閫佹寜閽?
-          
-          // Aggressive send: find and click the send button
           var sendBtn = findSendButton(inputEl);
-          
           if (sendBtn) {
-            // Method 1: native click
             try { sendBtn.click(); } catch(e) {}
-            // Method 2: React __reactProps direct call
-            try {
-              var sk = Object.keys(sendBtn).find(function(k) { return k.indexOf("__reactProps") >= 0 || k.indexOf("__reactEventHandlers") >= 0; });
-              if (sk && sendBtn[sk] && sendBtn[sk].onClick) { sendBtn[sk].onClick(); }
-            } catch(e) {}
-            // Method 3: MouseEvent dispatch
             sendBtn.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0, cancelable: true}));
           }
-          
-          // Also try Enter on input
-          try {
-            inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true}));
-            inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));
-            // Ctrl+Enter
-            inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, ctrlKey: true, bubbles: true}));
-            inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, ctrlKey: true, bubbles: true}));
-          } catch(e) {}
+          inputEl.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true}));
+          inputEl.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true}));
           
           clearTimeout(timer);
           resolve({type: "status", data: "sent"});
-        } catch(e) {
-          clearTimeout(timer);
-          resolve({type: "error", data: "send_err3:" + (e.message || e)});
-        }
-      }, 400);
-    } catch(e) {
-      clearTimeout(timer);
-      resolve({type: "error", data: "send_err2:" + (e.message || e)});
-    }
-  }, 300);
-} catch(e) {
-  clearTimeout(timer);
-  resolve({type: "error", data: "send_err1:" + (e.message || e)});
-}
-};
-
-function findSendButton(inputEl) {
-  // Helper: find ANY clickable element near the input that looks like a send button
-  var candidates = [];
-  var inputRect = inputEl.getBoundingClientRect();
-  
-  // Strategy 1: Find ALL elements with text matching
-  var allEls = document.querySelectorAll("button, [role=button], a, span, div, i, svg");
-  for (var i = 0; i < allEls.length; i++) {
-    var el = allEls[i];
-    var r = el.getBoundingClientRect();
-    if (r.width < 20 || r.height < 20) continue;
-    // Near the bottom-right (chat input area)
-    if (r.top < inputRect.top - 80 || r.top > inputRect.bottom + 80) continue;
-    if (r.left < inputRect.left) continue;
-    
-    var t = (el.innerText || el.textContent || "").trim().toLowerCase();
-    // Score: higher = better match
-    var score = 0;
-    if (t.indexOf("发送") >= 0) score += 100;
-    if (t.indexOf("send") >= 0) score += 50;
-    if (t.indexOf("回复") >= 0) score += 30;
-    if (t === "" || t === " " || t === "\n") score += 5; // Icon buttons often have empty text
-    // Bonus for being to the right of the input
-    if (r.left > inputRect.right) score += 20;
-    // Bonus for being at similar height
-    var heightDiff = Math.abs(r.top - inputRect.top);
-    if (heightDiff < 30) score += 20;
-    if (heightDiff < 60) score += 10;
-    
-    if (score > 0) {
-      candidates.push({el: el, score: score});
-    }
-  }
-  
-  // Sort by score descending
-  candidates.sort(function(a,b) { return b.score - a.score; });
-  
-  if (candidates.length > 0) {
-    if (candidates[0].score > 10) return candidates[0].el;
-    // Low score - try multiple candidates
-    for (var i = 0; i < candidates.length && i < 3; i++) {
-      try { candidates[i].el.click(); } catch(e) {}
-    }
-    return candidates[0].el;
-  }
-  
-  // Strategy 2: Find the rightmost-interactive element in the bottom toolbar
-  var toolbar = null;
-  var allDivs = document.querySelectorAll("div");
-  for (var i = 0; i < allDivs.length; i++) {
-    var r = allDivs[i].getBoundingClientRect();
-    if (Math.abs(r.top - inputRect.top) < 50 && r.width > 200 && r.left > inputRect.left - 100) {
-      // This might be the toolbar
-      var lastChild = allDivs[i].lastElementChild || allDivs[i].children[allDivs[i].children.length - 1];
-      if (lastChild) { return lastChild; }
-    }
-  }
-  
-  return null;
-}
- catch(e) {
-              clearTimeout(timer);
-              resolve({type: "error", data: "send_err3:" + (e.message || e)});
-            }
-          }, 800);
-        } catch(e) {
-          clearTimeout(timer);
-          resolve({type: "error", data: "send_err2:" + (e.message || e)});
-        }
+        } catch(e) { clearTimeout(timer); resolve({type: "error", data: "send_err:" + (e.message || e)}); }
       }, 500);
-    } catch(e) {
-      clearTimeout(timer);
-      resolve({type: "error", data: "send_err1:" + (e.message || e)});
-    }
+    } catch(e) { clearTimeout(timer); resolve({type: "error", data: "send_err:" + (e.message || e)}); }
   });
 }
 
-// ===== 璇诲彇鑱婂ぉ =====// ===== 璇诲彇鑱婂ぉ =====
-  function readChat() {
+function findSendButton(inputEl) {
+  var candidates = [];
+  var ir = inputEl.getBoundingClientRect();
+  var allEls = document.querySelectorAll("button, [role=button], a, span, div, i, svg");
+  for (var i = 0; i < allEls.length; i++) {
+    var el = allEls[i]; var r = el.getBoundingClientRect();
+    if (r.width < 20 || r.height < 20) continue;
+    if (r.top < ir.top - 80 || r.top > ir.bottom + 80) continue;
+    if (r.left < ir.left) continue;
+    var t = (el.innerText || el.textContent || "").trim().toLowerCase();
+    var score = 0;
+    if (t.indexOf("\u53d1\u9001") >= 0) score += 100;
+    if (t.indexOf("send") >= 0) score += 50;
+    if (t === "" || t === " ") score += 5;
+    if (r.left > ir.right) score += 20;
+    var hd = Math.abs(r.top - ir.top);
+    if (hd < 30) score += 20;
+    if (score > 0) candidates.push({el: el, score: score});
+  }
+  candidates.sort(function(a,b) { return b.score - a.score; });
+  if (candidates.length > 0 && candidates[0].score > 10) return candidates[0].el;
+  if (candidates.length > 0) { for (var i = 0; i < candidates.length && i < 3; i++) { try { candidates[i].el.click(); } catch(e) {} } return candidates[0].el; }
+  return null;
+}
+function readChat() {
     var result = {messages: [], full_text: ""};
     var midX = window.innerWidth * 0.4;
     var maxArea = 0, container = null;
@@ -414,10 +320,10 @@ function findSendButton(inputEl) {
     return result;
   }
 
-  // ===== 椤甸潰璇婃柇 =====
+  // ===== 页面诊断 =====
   function scanDetail() {
     var result = {url: location.href, title: document.title, viewport: window.innerWidth+"x"+window.innerHeight, bodyLength: (document.body.innerText||"").length, elements: [], inputs: [], allText: []};
-    // 鏀堕泦鎵€鏈夊彲瑙佹枃鏈?
+    // 收集所有可见文本
     var textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     var txtNode;
     while (txtNode = textWalker.nextNode()) {
@@ -445,7 +351,7 @@ function findSendButton(inputEl) {
     return result;
   }
 
-  // ===== 娑堟伅鐩戝惉 =====
+  // ===== 消息监听 =====
   chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
     console.log("[CT] cmd:", msg.cmd, JSON.stringify(msg.params || {}).slice(0,60));
 
@@ -467,7 +373,7 @@ function findSendButton(inputEl) {
         clickCand(msg.params.name).then(function(ok) { sendResponse({type: "status", data: ok ? "clicked" : "error:not_found"}); }).catch(function(e) { sendResponse({type: "error", data: "click_error:" + (e.message || e)}); });
         return true;
       case "send_message":
-        sendMsg(msg.params.text).then(function(resp) { sendResponse(resp); }).catch(function(e) { sendResponse({type: "error", data: "send_err:" + (e.message || e)}); });
+        sendMsg(msg.params.text).then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed"}); }).catch(function(e) { sendResponse({type: "error", data: "send_error:" + (e.message || e)}); });
         return true;
       case "ping":
         sendResponse({pong: true, time: Date.now()});
@@ -481,12 +387,12 @@ function findSendButton(inputEl) {
     return true;
   });
 
-  // 閫氱煡鍚庡彴
+  // 通知后台
   chrome.runtime.sendMessage({type: "connected", data: {url: location.href, title: document.title}});
 
-  // 蹇冭烦
+  // 心跳
   setInterval(function() { chrome.runtime.sendMessage({type: "ping"}); }, 15000);
 
-  console.log("[CT] BOSS鐩磋仒鍔╂墜 v6.1 鍔犺浇瀹屾垚");
+  console.log("[CT] BOSS直聘助手 v6.1 加载完成");
 })();
 
