@@ -574,14 +574,15 @@
         console.log('[CT] 直连WS已连接');
         cws.send(JSON.stringify({type: "connected", data: {url: location.href, title: document.title}}));
       };
-      cws.onmessage = function(e) {
+      var sendMsgTimer = null;
+  cws.onmessage = function(e) {
         try {
           var msg = JSON.parse(e.data);
           console.log("[CT] 直连命令:", msg.cmd);
           if (msg.cmd === "scan_candidates") {
             cws.send(JSON.stringify({type: "candidates", data: scanAll()}));
           } else if (msg.cmd === "click_candidate" && msg.params && msg.params.name) {
-            clickCand(msg.params.name).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "clicked" : "error:not_found"})); });
+            clickCand(msg.params.name).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "clicked" : "error:not_found"})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "click_error:" + (e.message || e)})); });
           } else if (msg.cmd === "send_message" && msg.params && msg.params.text) {
             sendMsg(msg.params.text).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed"})); });
           } else if (msg.cmd === "read_chat") {
@@ -599,6 +600,7 @@
   }
   setTimeout(connectDirectWS, 500);
 })();
+
 
 
 
