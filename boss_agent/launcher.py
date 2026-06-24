@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 import random
 """BOSS直聘半自动助手v6.0 - 最终稳定版"""
 import asyncio, json, sys, subprocess, time, os
@@ -33,6 +33,7 @@ class Bot:
         self.ws = None
         self.connected = False
         self.candidates = []
+        self.last_read_status = None
         self.actions = 0
         self.max_actions = 15
         self.loop = None
@@ -102,6 +103,9 @@ class Bot:
                             print("  [!] " + s)
                         else:
                             print("  [i] " + s)
+                elif t == "read_status":
+                    self.last_read_status = d
+                    print("  [\u5df2\u8bfb] " + ("\u5df2\u8bfb" if d.get("is_read") else "\u672a\u8bfb"))
                 elif t == "error":
                     s = d
                     if isinstance(s, str):
