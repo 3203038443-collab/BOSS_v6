@@ -46,7 +46,7 @@
     // 策略2: 在左侧面板内找条目
     if (bestPanel) {
       result.debug = "panelFound";
-      var items = bestPanel.querySelectorAll("li, > div, [class*=item], [class*=row], [class*=card], [class*=chat]");
+      var items = bestPanel.querySelectorAll("li, div, [class*=item], [class*=row], [class*=card], [class*=chat], [class*=list]");
       for (var i = 0; i < items.length; i++) {
         var c = extractName(items[i]);
         if (c && c.name && !seen[c.name]) { seen[c.name] = true; result.candidates.push(c); }
@@ -125,7 +125,27 @@
         }
       }
     }
-    console.log("[CT] scanAll:", result.candidates.length, "candidates, debug:", result.debug);
+
+    // 策略7: 暴力文本收集 - 收集页面左侧所有可见文本节点的全部内容
+    if (result.debug.startsWith("ultimate") || result.candidates.length < 3) {
+      result.debug = "textDumpAll";
+      var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+      var node;
+      var textSeen = {};
+      while ((node = walker.nextNode())) {
+        var t = (node.textContent || "").trim();
+        if (!t || t.length < 2 || textSeen[t]) continue;
+        textSeen[t] = true;
+        var r = node.parentElement.getBoundingClientRect();
+        if (r.left > viewW * 0.55 || r.top < 30 || r.width === 0) continue;
+        if (t.length <= 20 && !/^\d+$/.test(t) && !seen[t]) {
+          seen[t] = true;
+          result.candidates.push({name: t.slice(0,20), last_msg: "", has_unread: false, x: Math.round(r.left), y: Math.round(r.top)});
+        }
+      }
+    }
+
+        console.log("[CT] scanAll:", result.candidates.length, "candidates, debug:", result.debug);
     return result;
   }
 
