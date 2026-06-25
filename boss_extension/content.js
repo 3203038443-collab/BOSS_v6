@@ -239,14 +239,75 @@
       return (text || "").replace(/\s+/g, " ").trim();
     }
 
-    function isRecommendCardText(text) {
+    function hasRecommendSignal(text) {
       text = cleanLine(text);
       if (!text) return false;
-      var hasMeta = text.indexOf("学历") >= 0;
-      var hasIntent = text.indexOf("最近关注") >= 0 || text.indexOf("期望") >= 0;
-      var hasSalary = /(\d+-\d+K|面议)/.test(text);
-      var hasCardTail = text.indexOf("未填写工作经历") >= 0 || text.indexOf("打招呼") >= 0;
-      return hasMeta && hasIntent && hasSalary && hasCardTail;
+      var score = 0;
+      if (text.indexOf("打招呼") >= 0) score += 2;
+      if (text.indexOf("学历") >= 0) score += 1;
+      if (text.indexOf("最近关注") >= 0 || text.indexOf("期望") >= 0) score += 1;
+      if (/(\d+-\d+K|面议|\d+薪)/.test(text)) score += 1;
+      if (text.indexOf("未填写工作经历") >= 0 || text.indexOf("工作经历") >= 0) score += 1;
+      if (text.indexOf("沟通") >= 0 || text.indexOf("活跃") >= 0 || text.indexOf("在线") >= 0) score += 1;
+      return score >= 3;
+    }
+
+    function getScrollRoots() {
+      var roots = [document.scrollingElement || document.documentElement, document.body];
+      var all = document.querySelectorAll("div, main, section, article, aside");
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        var style = window.getComputedStyle(el);
+        if (!style) continue;
+        if (/(auto|scroll)/.test(style.overflowY || "") && el.scrollHeight > el.clientHeight + 80) {
+          roots.push(el);
+        }
+      }
+      return roots.filter(function(el, idx, arr) { return el && arr.indexOf(el) === idx; });
+    }
+
+    function climbCard(el) {
+      var cur = el;
+      var depth = 0;
+      while (cur && cur !== document.body && depth < 8) {
+        var text = cleanLine(cur.innerText || "");
+        var cls = (cur.className || "").toString();
+        if (text && hasRecommendSignal(text)) return cur;
+        if (/(card|item|row|list|talent|recommend|candidate)/i.test(cls) && text.length > 10) return cur;
+        cur = cur.parentElement;
+        depth++;
+      }
+      return el;
+    }
+
+    function collectCards() {
+      var cards = [];
+      var nodeSet = {};
+      var buttons = Array.from(document.querySelectorAll("button, a, span, div, li, article, section")).filter(function(el) {
+        var t = cleanLine(el.innerText || el.textContent || "");
+        if (!t) return false;
+        return t.indexOf("打招呼") >= 0 || hasRecommendSignal(t);
+      });
+      for (var bi = 0; bi < buttons.length; bi++) {
+        var card = climbCard(buttons[bi]);
+        if (!card || nodeSet[card]) continue;
+        nodeSet[card] = true;
+        cards.push(card);
+      }
+      if (cards.length > 0) return cards;
+
+      var all = document.querySelectorAll("div, li, section, article");
+      for (var ai = 0; ai < all.length; ai++) {
+        var el = all[ai];
+        var r = el.getBoundingClientRect();
+        if (r.width < 220 || r.height < 60) continue;
+        if (r.bottom < 60 || r.top > window.innerHeight + 120) continue;
+        if (!hasRecommendSignal(el.innerText || "")) continue;
+        if (nodeSet[el]) continue;
+        nodeSet[el] = true;
+        cards.push(el);
+      }
+      return cards;
     }
 
     function parseCandidate(card, idx) {
@@ -293,6 +354,14 @@
           }
         }
         if (!intent) intent = "未标注意向";
+        if (!salary) {
+          for (var si = 0; si < lines.length; si++) {
+            if (/(\d+-\d+K|面议|\d+薪)/.test(lines[si])) {
+              salary = lines[si].match(/(\d+-\d+K|面议|\d+薪)/)[1];
+              break;
+            }
+          }
+        }
         var r = card.getBoundingClientRect();
         return {
           name: name,
@@ -314,13 +383,7 @@
       }
     }
 
-    var cardCandidates = Array.from(document.querySelectorAll("div, li, section, article")).filter(function(el) {
-      var r = el.getBoundingClientRect();
-      if (r.width < 280 || r.height < 80) return false;
-      if (r.top < 80 || r.bottom > window.innerHeight + 40) return false;
-      var text = (el.innerText || "").trim();
-      return isRecommendCardText(text);
-    });
+    var cardCandidates = collectCards();
 
     for (var bi = 0; bi < cardCandidates.length; bi++) {
       var card = cardCandidates[bi];
@@ -339,6 +402,33 @@
 
   async function scanRecommendTalentsDeep() {
     var best = null;
+    function scrollTargets() {
+      var roots = [document.scrollingElement || document.documentElement, document.body];
+      var all = document.querySelectorAll("div, main, section, article, aside");
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        var style = window.getComputedStyle(el);
+        if (style && /(auto|scroll)/.test(style.overflowY || "") && el.scrollHeight > el.clientHeight + 80) {
+          roots.push(el);
+        }
+      }
+      return roots.filter(function(el, idx, arr) { return el && arr.indexOf(el) === idx; });
+    }
+    function scrollOnce() {
+      var roots = scrollTargets();
+      for (var i = 0; i < roots.length; i++) {
+        try {
+          var el = roots[i];
+          var before = el.scrollTop || 0;
+          el.scrollTop = before + Math.max(360, Math.round(window.innerHeight * 0.7));
+          if ((el.scrollTop || 0) !== before) return true;
+        } catch (e) {}
+      }
+      try {
+        window.scrollBy(0, Math.max(360, Math.round(window.innerHeight * 0.7)));
+      } catch (e) {}
+      return true;
+    }
     for (var round = 0; round < 5; round++) {
       var current = scanRecommendTalents();
       if (!best || current.candidates.length > best.candidates.length) best = current;
@@ -347,7 +437,7 @@
         return best;
       }
       try {
-        window.scrollBy(0, Math.max(400, Math.round(window.innerHeight * 0.7)));
+        scrollOnce();
       } catch (e) {}
       await sleep(1200 + round * 400);
     }
