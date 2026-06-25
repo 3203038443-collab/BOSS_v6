@@ -47,6 +47,7 @@ class Bot:
         self.max_delay = 10
         self.page_title = ""
         self.page_url = ""
+        self.last_detail = None
 
     def cleanup_port(self):
         try:
@@ -83,6 +84,27 @@ class Bot:
             return "【新消息】"
         return "【未读】"
 
+    async def wait_for_page_ready(self, url_prefix=None, timeout_seconds=20, min_body_len=200, need_recommend_signals=False):
+        deadline = time.monotonic() + timeout_seconds
+        last_detail = None
+        while time.monotonic() < deadline:
+            last_detail = getattr(self, "last_detail", None)
+            if url_prefix and self.page_url and self.page_url.startswith(url_prefix):
+                if last_detail and last_detail.get("bodyLength", 0) >= min_body_len:
+                    if not need_recommend_signals:
+                        return True
+                    elements = last_detail.get("elements", [])
+                    for el in elements:
+                        txt = (el.get("text") or "").strip()
+                        if txt == "打招呼" or txt == "推荐" or txt == "精选" or txt == "最新":
+                            return True
+                    title = (last_detail.get("title") or "") + " " + (self.page_title or "")
+                    if "推荐" in title:
+                        return True
+            await self.cmd("scan_detail")
+            await asyncio.sleep(1)
+        return False
+
     def filter_candidates(self, mode):
         if mode == "read":
             return [c for c in self.candidates if c.get("has_read")]
@@ -102,10 +124,10 @@ class Bot:
 
     def format_recommend_candidate(self, cand):
         parts = []
-        if cand.get("intent"):
-            parts.append(cand.get("intent"))
-        if cand.get("location"):
-            parts.append(cand.get("location"))
+        location = cand.get("location", "").strip()
+        intent = cand.get("intent", "").strip()
+        if location or intent:
+            parts.append((location + (" " if location and intent else "") + intent).strip())
         school = cand.get("school", "").strip()
         if school:
             parts.append(school)
@@ -115,9 +137,6 @@ class Bot:
         degree = cand.get("degree", "").strip()
         if degree and degree not in major:
             parts.append(degree)
-        salary = cand.get("salary", "").strip()
-        if salary:
-            parts.append(salary)
         if not parts:
             parts.append("推荐牛人")
         return cand.get("name", "?") + "【" + "｜".join(parts) + "】"
@@ -146,8 +165,12 @@ class Bot:
     async def ensure_recommend_candidates(self):
         if self.recommend_candidates:
             return True
+        await self.wait_for_page_ready(RECOMMEND_URL, timeout_seconds=20, min_body_len=500, need_recommend_signals=True)
         await self.cmd("scan_recommend_candidates")
-        await asyncio.sleep(3)
+        for _ in range(6):
+            await asyncio.sleep(1)
+            if self.recommend_candidates:
+                return True
         return bool(self.recommend_candidates)
 
     async def navigate_and_wait(self, url, wait_seconds=6):
@@ -159,8 +182,9 @@ class Bot:
             await asyncio.sleep(0.5)
             if self.connected and self.page_url and self.page_url.startswith(url):
                 break
-        await asyncio.sleep(2.5)
-        return bool(self.page_url and self.page_url.startswith(url))
+        ready = await self.wait_for_page_ready(url, timeout_seconds=15, min_body_len=500, need_recommend_signals=("recommend" in url))
+        await asyncio.sleep(1.5)
+        return bool(self.page_url and self.page_url.startswith(url) and ready)
 
     async def ensure_candidates(self):
         if self.candidates:
@@ -235,6 +259,9 @@ class Bot:
                         print()
                         print("  [聊天内容] " + txt[:120])
                 elif t == "detail":
+                    self.last_detail = d
+                    self.page_title = d.get("title", self.page_title)
+                    self.page_url = d.get("url", self.page_url)
                     print()
                     print("  === 页面诊断 ===")
                     print("  标题: " + str(d.get("title", "?")))
@@ -379,7 +406,10 @@ class Bot:
                         print("  [!] 未成功切换到推荐牛人页面")
                         continue
                     await self.cmd("scan_recommend_candidates")
-                    await asyncio.sleep(3)
+                    for _ in range(6):
+                        await asyncio.sleep(1)
+                        if self.recommend_candidates:
+                            break
                 else:
                     print("  切换到沟通页面...")
                     ok_nav = await self.navigate_and_wait(COMM_URL)

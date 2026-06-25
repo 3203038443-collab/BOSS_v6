@@ -338,19 +338,42 @@
         var intent = "";
         var school = "";
         var major = "";
+
+        function splitParts(line) {
+          return cleanLine(line)
+            .replace(/[·•|｜\/\\]+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .split(" ")
+            .map(cleanLine)
+            .filter(Boolean);
+        }
+
         for (var li = 0; li < lines.length; li++) {
           if (/^\d+-\d+K$/.test(lines[li]) || /^面议$/.test(lines[li])) salary = lines[li];
           if (lines[li].indexOf("最近关注") === 0 || lines[li].indexOf("期望") === 0) {
             var line2 = lines[li].replace(/^最近关注|^期望/, "").trim();
-            var parts2 = line2.split("·").map(cleanLine).filter(Boolean);
-            if (parts2.length > 0) location = parts2[0];
-            if (parts2.length > 1) intent = parts2.slice(1).join(" / ");
+            var parts2 = splitParts(line2);
+            if (parts2.length > 1) {
+              location = parts2[0];
+              intent = parts2.slice(1).join(" ");
+            } else if (parts2.length === 1) {
+              location = parts2[0];
+            }
           }
           if (lines[li].indexOf("学历") === 0) {
             var line3 = lines[li].replace(/^学历/, "").trim();
-            var parts3 = line3.split("·").map(cleanLine).filter(Boolean);
-            if (parts3.length > 0) school = parts3[0];
-            if (parts3.length > 1) major = parts3.slice(1).join(" / ");
+            var parts3 = splitParts(line3);
+            if (parts3.length >= 3) {
+              school = parts3[0];
+              major = parts3.slice(1, -1).join(" ");
+              degree = parts3[parts3.length - 1];
+            } else if (parts3.length === 2) {
+              school = parts3[0];
+              degree = parts3[1];
+            } else if (parts3.length === 1) {
+              school = parts3[0];
+            }
           }
         }
         if (!intent) intent = "未标注意向";
