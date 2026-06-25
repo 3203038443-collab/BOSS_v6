@@ -16,24 +16,6 @@
       return /^(\d{1,2}:\d{2}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}|昨天|前天|刚刚|上午|下午|晚上|凌晨|星期[一二三四五六日天])$/.test(text);
     }
 
-    function isStatusLine(text) {
-      text = (text || "").trim();
-      return text.indexOf("[已读]") === 0 || text.indexOf("[送达]") === 0;
-    }
-
-    function isBadName(text) {
-      text = (text || "").trim();
-      if (!text) return true;
-      if (text.indexOf("[") === 0) return true;
-      if (text.indexOf("已读") >= 0 || text.indexOf("送达") >= 0) return true;
-      if (text.length > 12) return true;
-       if (/^[\u4e00-\u9fa5]{5,}$/.test(text)) return true;
-      if (/[，。！？,.!?:：]/.test(text)) return true;
-      if (/(最近|工作|简历|老板|回复|方便|您好|你好)/.test(text)) return true;
-      if (/^(校园合伙人|牛人|Boss|BOSS|招聘者|候选人|沟通|搜索)$/.test(text)) return true;
-      return false;
-    }
-
     function cleanCandidateName(line) {
       var text = (line || "").replace(/\s+/g, " ").trim();
       if (!text) return "";
@@ -44,33 +26,10 @@
     }
 
     function getPreviewStatus(lines) {
-      for (var i = 0; i < lines.length; i++) {
-        var preview = (lines[i] || "").trim();
-        if (preview.indexOf("[已读]") === 0) return true;
-        if (preview.indexOf("[送达]") === 0) return false;
-      }
+      var preview = lines.length > 1 ? lines[1].trim() : "";
+      if (preview.indexOf("[已读]") === 0) return true;
+      if (preview.indexOf("[送达]") === 0) return false;
       return null;
-    }
-
-    function getPreviewLine(lines) {
-      for (var i = 0; i < lines.length; i++) {
-        var line = (lines[i] || "").trim();
-        if (isStatusLine(line)) return line;
-      }
-      for (var j = lines.length - 1; j >= 1; j--) {
-        var tail = (lines[j] || "").trim();
-        if (tail && !isTimeLike(tail)) return tail;
-      }
-      return "";
-    }
-
-    function getHeaderLine(lines) {
-      for (var i = 0; i < lines.length; i++) {
-        var line = (lines[i] || "").replace(/\s+/g, " ").trim();
-        if (!line || isTimeLike(line) || isStatusLine(line)) continue;
-        return line;
-      }
-      return "";
     }
 
     // 策略1: 找左侧面板
@@ -92,15 +51,9 @@
         if (r.width < 50 || r.height < 20) return null;
         var lines = text.split("\n").filter(function(l) { return l.trim(); });
         if (lines.length === 0) return null;
-        var hasContext = false;
-        for (var li = 0; li < lines.length; li++) {
-          if (isTimeLike(lines[li]) || isStatusLine(lines[li])) { hasContext = true; break; }
-        }
-        if (!hasContext && lines.length < 2) return null;
-        var headerLine = getHeaderLine(lines);
-        var name = cleanCandidateName(headerLine);
-        if (!name || name.length < 1 || name.length > 20 || /^\d+$/.test(name) || isTimeLike(name) || isBadName(name)) return null;
-        var lastMsg = getPreviewLine(lines).slice(0, 80);
+        var name = cleanCandidateName(lines[0]);
+        if (!name || name.length < 1 || name.length > 20 || /^\d+$/.test(name) || isTimeLike(name)) return null;
+        var lastMsg = lines.length > 1 ? lines[1].trim().slice(0, 80) : "";
         var unreadNum = 0;
         var children = item.querySelectorAll("*");
         for (var j = 0; j < children.length; j++) {
@@ -140,15 +93,10 @@
         if (!t || t.length < 2 || t.length > 100) continue;
         var lines = t.split("\n").filter(function(l) { return l.trim(); });
         if (lines.length === 0) continue;
-        var hasContext = false;
-        for (var li = 0; li < lines.length; li++) {
-          if (isTimeLike(lines[li]) || isStatusLine(lines[li])) { hasContext = true; break; }
-        }
-        if (!hasContext && lines.length < 2) continue;
-        var name = cleanCandidateName(getHeaderLine(lines));
-        if (!name || name.length > 20 || name.length < 1 || /^\d+$/.test(name) || isTimeLike(name) || isBadName(name) || seen[name]) continue;
+        var name = cleanCandidateName(lines[0]);
+        if (!name || name.length > 20 || name.length < 1 || /^\d+$/.test(name) || isTimeLike(name) || seen[name]) continue;
         seen[name] = true;
-        result.candidates.push({name: name.slice(0,20), last_msg: getPreviewLine(lines).slice(0,80), has_unread: false, unread_count: 0, has_read: getPreviewStatus(lines) === true, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)});
+        result.candidates.push({name: name.slice(0,20), last_msg: lines.length > 1 ? lines[1].trim().slice(0,80) : "", has_unread: false, unread_count: 0, has_read: getPreviewStatus(lines) === true, x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)});
       }
     }
 
@@ -228,178 +176,6 @@
 
         console.log("[CT] scanAll:", result.candidates.length, "candidates, debug:", result.debug);
     return result;
-  }
-
-  // ===== 扫描推荐牛人 =====
-  function scanRecommendTalents() {
-    var result = {candidates: [], groups: {}, page_url: location.href, page_title: document.title, debug: "recommend_scan"};
-    var seen = {};
-
-    function cleanLine(text) {
-      return (text || "").replace(/\s+/g, " ").trim();
-    }
-
-    function isRecommendCardText(text) {
-      text = cleanLine(text);
-      if (!text) return false;
-      var hasMeta = text.indexOf("学历") >= 0;
-      var hasIntent = text.indexOf("最近关注") >= 0 || text.indexOf("期望") >= 0;
-      var hasSalary = /(\d+-\d+K|面议)/.test(text);
-      var hasCardTail = text.indexOf("未填写工作经历") >= 0 || text.indexOf("打招呼") >= 0;
-      return hasMeta && hasIntent && hasSalary && hasCardTail;
-    }
-
-    function parseCandidate(card, idx) {
-      try {
-        var rawText = (card.innerText || "").trim();
-        var text = cleanLine(rawText);
-        if (!text) return null;
-        var lines = rawText.split("\n").map(cleanLine).filter(Boolean);
-        if (lines.length < 3) return null;
-        var name = "";
-        var age = "";
-        var graduateYear = "";
-        var degree = "";
-        var status = "";
-        var headerTokens = lines[0].split(" ").filter(Boolean);
-        if (headerTokens.length > 0) name = headerTokens[0];
-        for (var i = 1; i < headerTokens.length; i++) {
-          var token = headerTokens[i];
-          if (/^\d{2}岁$/.test(token)) age = token;
-          else if (/^\d{2}年应届生$/.test(token)) graduateYear = token;
-          else if (/^(中专|大专|本科|硕士|博士)$/.test(token)) degree = token;
-          else status += (status ? " " : "") + token;
-        }
-        if (!name || name.length > 20) return null;
-
-        var salary = "";
-        var location = "";
-        var intent = "";
-        var school = "";
-        var major = "";
-        for (var li = 0; li < lines.length; li++) {
-          if (/^\d+-\d+K$/.test(lines[li]) || /^面议$/.test(lines[li])) salary = lines[li];
-          if (lines[li].indexOf("最近关注") === 0 || lines[li].indexOf("期望") === 0) {
-            var line2 = lines[li].replace(/^最近关注|^期望/, "").trim();
-            var parts2 = line2.split("·").map(cleanLine).filter(Boolean);
-            if (parts2.length > 0) location = parts2[0];
-            if (parts2.length > 1) intent = parts2.slice(1).join(" / ");
-          }
-          if (lines[li].indexOf("学历") === 0) {
-            var line3 = lines[li].replace(/^学历/, "").trim();
-            var parts3 = line3.split("·").map(cleanLine).filter(Boolean);
-            if (parts3.length > 0) school = parts3[0];
-            if (parts3.length > 1) major = parts3.slice(1).join(" / ");
-          }
-        }
-        if (!intent) intent = "未标注意向";
-        var r = card.getBoundingClientRect();
-        return {
-          name: name,
-          age: age,
-          graduate_year: graduateYear,
-          degree: degree || "",
-          active_status: status || "",
-          location: location || "",
-          intent: intent,
-          school: school || "",
-          major: major || "",
-          salary: salary || "",
-          card_index: idx,
-          x: Math.round(r.left + r.width / 2),
-          y: Math.round(r.top + r.height / 2)
-        };
-      } catch (e) {
-        return null;
-      }
-    }
-
-    var cardCandidates = Array.from(document.querySelectorAll("div, li, section, article")).filter(function(el) {
-      var r = el.getBoundingClientRect();
-      if (r.width < 280 || r.height < 80) return false;
-      if (r.top < 80 || r.bottom > window.innerHeight + 40) return false;
-      var text = (el.innerText || "").trim();
-      return isRecommendCardText(text);
-    });
-
-    for (var bi = 0; bi < cardCandidates.length; bi++) {
-      var card = cardCandidates[bi];
-      var candidate = parseCandidate(card, bi + 1);
-      if (!candidate || seen[candidate.name + "|" + candidate.intent]) continue;
-      seen[candidate.name + "|" + candidate.intent] = true;
-      result.candidates.push(candidate);
-      if (!result.groups[candidate.intent]) result.groups[candidate.intent] = [];
-      result.groups[candidate.intent].push(candidate);
-    }
-
-    result.debug = "recommend_scan_cards:" + cardCandidates.length;
-    console.log("[CT] scanRecommendTalents:", result.candidates.length, "candidates", result.debug);
-    return result;
-  }
-
-  async function scanRecommendTalentsDeep() {
-    var best = null;
-    for (var round = 0; round < 5; round++) {
-      var current = scanRecommendTalents();
-      if (!best || current.candidates.length > best.candidates.length) best = current;
-      if (current.candidates.length > 0) {
-        best.debug = current.debug + "|round:" + round;
-        return best;
-      }
-      try {
-        window.scrollBy(0, Math.max(400, Math.round(window.innerHeight * 0.7)));
-      } catch (e) {}
-      await sleep(1200 + round * 400);
-    }
-    if (best) best.debug = (best.debug || "recommend_scan") + "|deep_retry";
-    return best || {candidates: [], groups: {}, page_url: location.href, page_title: document.title, debug: "recommend_scan_empty"};
-  }
-
-  async function greetRecommendTalent(name, text) {
-    console.log("[CT] greetRecommendTalent:", name);
-    var buttons = Array.from(document.querySelectorAll("button, a, span, div")).filter(function(el) {
-      var t = (el.innerText || el.textContent || "").trim();
-      return t === "打招呼";
-    });
-    for (var bi = 0; bi < buttons.length; bi++) {
-      var btn = buttons[bi];
-      var card = btn.closest("li, [class*=card], [class*=item], [class*=list-item], [class*=row]") || btn.parentElement;
-      var depth = 0;
-      while (card && depth < 6) {
-        var t = (card.innerText || "").trim();
-        if (t.indexOf(name) >= 0 && t.indexOf("打招呼") >= 0) break;
-        card = card.parentElement;
-        depth++;
-      }
-      if (!card) continue;
-      var cardText = (card.innerText || "").trim();
-      if (cardText.indexOf(name) < 0) continue;
-      try {
-        btn.click();
-      } catch (e) {
-        try {
-          btn.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, button: 0}));
-        } catch (ex) {}
-      }
-      await sleep(1200 + rand(300, 800));
-      if (text) {
-        return await sendMsg(text);
-      }
-      return true;
-    }
-    return false;
-  }
-
-  async function navigatePage(url) {
-    try {
-      if (!url) return false;
-      if (location.href === url) return true;
-      location.href = url;
-      return true;
-    } catch (e) {
-      console.log("[CT] navigatePage error:", e.message || e);
-      return false;
-    }
   }
 
   // ===== 点击候选人 =====
@@ -969,13 +745,6 @@ function scanDetail() {
       case "read_chat":
         sendResponse({type: "chat_content", data: readChat()});
         break;
-      case "scan_recommend_candidates":
-        scanRecommendTalentsDeep().then(function(data) {
-          sendResponse({type: "recommend_candidates", data: data});
-        }).catch(function(e) {
-          sendResponse({type: "error", data: "recommend_scan_error:" + (e.message || e)});
-        });
-        return true;
       case "check_read":
         sendResponse({type: "read_status", data: checkIfRead()});
         break;
@@ -987,12 +756,6 @@ function scanDetail() {
         return true;
       case "send_message":
         sendMsg(msg.params.text).then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed"}); }).catch(function(e) { sendResponse({type: "error", data: "send_error:" + (e.message || e)}); });
-        return true;
-      case "greet_recommend_candidate":
-        greetRecommendTalent(msg.params.name, msg.params.text || "").then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed"}); }).catch(function(e) { sendResponse({type: "error", data: "greet_error:" + (e.message || e)}); });
-        return true;
-      case "navigate_page":
-        navigatePage(msg.params.url).then(function(ok) { sendResponse({type: "status", data: ok ? "navigating" : "error:navigate_failed"}); }).catch(function(e) { sendResponse({type: "error", data: "navigate_error:" + (e.message || e)}); });
         return true;
       case "ping":
         sendResponse({pong: true, time: Date.now()});
@@ -1028,20 +791,10 @@ function scanDetail() {
           console.log("[CT] 直连命令:", msg.cmd);
           if (msg.cmd === "scan_candidates") {
             cws.send(JSON.stringify({type: "candidates", data: scanAll()}));
-          } else if (msg.cmd === "scan_recommend_candidates") {
-            scanRecommendTalentsDeep().then(function(data) {
-              cws.send(JSON.stringify({type: "recommend_candidates", data: data}));
-            }).catch(function(e) {
-              cws.send(JSON.stringify({type: "error", data: "recommend_scan_error:" + (e.message || e)}));
-            });
           } else if (msg.cmd === "click_candidate" && msg.params && msg.params.name) {
             clickCand(msg.params.name).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "clicked" : "error:not_found"})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "click_error:" + (e.message || e)})); });
           } else if (msg.cmd === "send_message" && msg.params && msg.params.text) {
             sendMsg(msg.params.text).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed"})); });
-          } else if (msg.cmd === "greet_recommend_candidate" && msg.params && msg.params.name) {
-            greetRecommendTalent(msg.params.name, msg.params.text || "").then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed"})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "greet_error:" + (e.message || e)})); });
-          } else if (msg.cmd === "navigate_page" && msg.params && msg.params.url) {
-            navigatePage(msg.params.url).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "navigating" : "error:navigate_failed"})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "navigate_error:" + (e.message || e)})); });
           } else if (msg.cmd === "read_chat") {
             cws.send(JSON.stringify({type: "chat_content", data: readChat()}));
                   } else if (msg.cmd === "check_read") {

@@ -3,7 +3,6 @@ import random
 """BOSS直聘半自动助手v6.0 - 最终稳定版"""
 import asyncio, json, sys, subprocess, time, os
 from pathlib import Path
-import socket
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_DIR = SCRIPT_DIR.parent
@@ -11,8 +10,6 @@ EXT_PATH = str(PROJECT_DIR / "boss_extension")
 CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 USER_DATA_DIR = str(SCRIPT_DIR / "chrome_profile")
 BOSS_URL = "https://www.zhipin.com/web/chat/index"
-COMM_URL = "https://www.zhipin.com/web/chat/index"
-RECOMMEND_URL = "https://www.zhipin.com/web/chat/recommend"
 WS_PORT = 9876
 sys.path.insert(0, str(SCRIPT_DIR))
 import websockets
@@ -36,8 +33,6 @@ class Bot:
         self.ws = None
         self.connected = False
         self.candidates = []
-        self.recommend_candidates = []
-        self.recommend_groups = {}
         self.last_read_status = None
         self.actions = 0
         self.max_actions = 15
@@ -46,35 +41,6 @@ class Bot:
         self.min_delay = 4
         self.max_delay = 10
         self.page_title = ""
-        self.page_url = ""
-
-    def cleanup_port(self):
-        try:
-            cmd = [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                "Get-NetTCPConnection -LocalPort " + str(WS_PORT) + " -ErrorAction SilentlyContinue | "
-                "Select-Object -ExpandProperty OwningProcess -Unique | "
-                "ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"
-            ]
-            subprocess.run(cmd, capture_output=True, timeout=8)
-            time.sleep(1)
-        except Exception:
-            pass
-
-    def port_available(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sock.bind(("127.0.0.1", WS_PORT))
-            return True
-        except OSError:
-            return False
-        finally:
-            try:
-                sock.close()
-            except Exception:
-                pass
 
     def get_status_label(self, cand):
         if cand.get("has_read"):
@@ -99,68 +65,6 @@ class Bot:
             print("    " + str(i).rjust(2) + ". " + c.get("name", "?") + self.get_status_label(c))
         if not items:
             print("  (空)")
-
-    def format_recommend_candidate(self, cand):
-        parts = []
-        if cand.get("intent"):
-            parts.append(cand.get("intent"))
-        if cand.get("location"):
-            parts.append(cand.get("location"))
-        school = cand.get("school", "").strip()
-        if school:
-            parts.append(school)
-        major = cand.get("major", "").strip()
-        if major:
-            parts.append(major)
-        degree = cand.get("degree", "").strip()
-        if degree and degree not in major:
-            parts.append(degree)
-        salary = cand.get("salary", "").strip()
-        if salary:
-            parts.append(salary)
-        if not parts:
-            parts.append("推荐牛人")
-        return cand.get("name", "?") + "【" + "｜".join(parts) + "】"
-
-    def print_recommend_candidate_list(self, items, title):
-        print()
-        print("  " + "=" * 45)
-        print("  " + title + " " + str(len(items)) + " 人:")
-        print("  " + "=" * 45)
-        for i, c in enumerate(items, 1):
-            print("    " + str(i).rjust(2) + ". " + self.format_recommend_candidate(c))
-        if not items:
-            print("  (空)")
-
-    def print_recommend_groups(self):
-        print()
-        print("  " + "=" * 45)
-        print("  推荐牛人岗位分类:")
-        print("  " + "=" * 45)
-        groups = sorted(self.recommend_groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-        for i, (intent, items) in enumerate(groups, 1):
-            print("    " + str(i).rjust(2) + ". " + intent + " (" + str(len(items)) + "人)")
-        if not groups:
-            print("  (空)")
-
-    async def ensure_recommend_candidates(self):
-        if self.recommend_candidates:
-            return True
-        await self.cmd("scan_recommend_candidates")
-        await asyncio.sleep(3)
-        return bool(self.recommend_candidates)
-
-    async def navigate_and_wait(self, url, wait_seconds=6):
-        self.connected = False
-        self.page_title = ""
-        self.page_url = ""
-        await self.cmd("navigate_page", {"url": url})
-        for _ in range(wait_seconds * 4):
-            await asyncio.sleep(0.5)
-            if self.connected and self.page_url and self.page_url.startswith(url):
-                break
-        await asyncio.sleep(2.5)
-        return bool(self.page_url and self.page_url.startswith(url))
 
     async def ensure_candidates(self):
         if self.candidates:
@@ -188,14 +92,11 @@ class Bot:
         self.print_candidate_list(items, title)
         if not items:
             return None
-        print("  0.对当前筛选结果全部发送")
-        s = (await self.async_input("  序号(0为全部): ")).strip()
-        if s == "0":
-            return {"mode": "all", "items": items}
+        s = (await self.async_input("  序号: ")).strip()
         if not s.isdigit() or not (1 <= int(s) <= len(items)):
             return None
         target = items[int(s) - 1]
-        return {"mode": "pick", "name": target.get("name", ""), "items": [target]}
+        return {"mode": "pick", "name": target.get("name", "")}
 
     def rand_delay(self):
         return random.uniform(self.min_delay, self.max_delay)
@@ -219,16 +120,6 @@ class Bot:
                     print("  已读: " + str(read_count) + " 人  未读: " + str(unread_count) + " 人")
                     if not self.candidates:
                         print("  (未找到候选人，可能页面结构变化)")
-                elif t == "recommend_candidates":
-                    self.recommend_candidates = d.get("candidates", [])
-                    self.recommend_groups = d.get("groups", {})
-                    print()
-                    print("  " + "=" * 45)
-                    print("  推荐牛人扫描到 " + str(len(self.recommend_candidates)) + " 人")
-                    print("  " + "=" * 45)
-                    self.print_recommend_groups()
-                    for intent, items in sorted(self.recommend_groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:3]:
-                        self.print_recommend_candidate_list(items[:5], "示例 " + intent)
                 elif t == "chat_content":
                     txt = d.get("full_text", "")[:200]
                     if txt:
@@ -276,10 +167,7 @@ class Bot:
                         print("  [错误] " + str(s))
                 elif t == "connected":
                  self.page_title = d.get("title", "")
-                 self.page_url = d.get("url", "")
                  print("  页面: " + self.page_title[:40])
-                 if self.page_url:
-                     print("  URL: " + self.page_url[:80])
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -308,12 +196,6 @@ class Bot:
         print("  BOSS直聘 半自动助手 v6.0")
         print("=" * 55)
         print()
-        print("[0/3] 清理旧连接...")
-        self.cleanup_port()
-        if not self.port_available():
-            print("  [!] 端口 " + str(WS_PORT) + " 仍被占用")
-            print("  请先关闭旧的助手窗口后再试")
-            return
         print("[1/3] 准备Chrome...")
         try:
             subprocess.run(["taskkill", "/f", "/im", "chrome.exe"], capture_output=True, timeout=5)
@@ -358,36 +240,18 @@ class Bot:
         while True:
             print()
             print("  操作: " + str(self.actions) + "/" + str(self.max_actions))
-            print("  1.扫描        2.打开对话")
+            print("  1.扫描候选人  2.打开对话")
             print("  3.单发模板    4.单发自定义")
             print("  5.批量发送    6.查看聊天")
             print("  7.页面诊断    8.状态筛选")
-            print("  B.推荐牛人批量")
             print("  9.测试连接    0.退出")
             c = (await self.async_input("  选择: ")).strip()
-            c = c.upper()
 
             if c == "0":
                 break
             elif c == "1":
-                print("  1.扫描沟通列表  2.扫描推荐牛人")
-                sc = (await self.async_input("  选择: ")).strip()
-                if sc == "2":
-                    print("  切换到推荐牛人页面...")
-                    ok_nav = await self.navigate_and_wait(RECOMMEND_URL)
-                    if not ok_nav:
-                        print("  [!] 未成功切换到推荐牛人页面")
-                        continue
-                    await self.cmd("scan_recommend_candidates")
-                    await asyncio.sleep(3)
-                else:
-                    print("  切换到沟通页面...")
-                    ok_nav = await self.navigate_and_wait(COMM_URL)
-                    if not ok_nav:
-                        print("  [!] 未成功切换到沟通页面")
-                        continue
-                    await self.cmd("scan_candidates")
-                    await asyncio.sleep(3)
+                await self.cmd("scan_candidates")
+                await asyncio.sleep(3)
             elif c == "7":
                 await self.cmd("scan_detail")
                 await asyncio.sleep(2)
@@ -416,62 +280,30 @@ class Bot:
                 target = await self.choose_target_candidate("本次单发对象")
                 if not target:
                     continue
+                if target["mode"] == "pick" and target["name"]:
+                    await self.cmd("click_candidate", {"name": target["name"]})
+                    await asyncio.sleep(3)
                 for k, v in TEMPLATES.items():
                     print("  " + k + ". " + v[:40] + "...")
                 s = (await self.async_input("  模板: ")).strip()
                 if s in TEMPLATES:
                     ok = (await self.async_input("  确认? (y/n): ")).strip().lower()
                     if ok == "y":
-                        if target["mode"] == "current":
-                            await self.cmd("send_message", {"text": TEMPLATES[s]})
-                            await asyncio.sleep(3)
-                        else:
-                            target_items = target.get("items", [])
-                            total = len(target_items)
-                            sent_names = set()
-                            sent = 0
-                            for i, ca in enumerate(target_items):
-                                if self.actions >= self.max_actions: break
-                                name = ca.get("name", "")
-                                if not name or name in sent_names:
-                                    continue
-                                print('  [' + str(i+1) + '/' + str(total) + '] ' + name)
-                                await self.cmd("click_candidate", {"name": name})
-                                await asyncio.sleep(self.rand_delay())
-                                await self.cmd("send_message", {"text": TEMPLATES[s]})
-                                await asyncio.sleep(self.rand_delay())
-                                sent_names.add(name)
-                                sent += 1
-                            print('  已发送: ' + str(sent) + '/' + str(total))
+                        await self.cmd("send_message", {"text": TEMPLATES[s]})
+                        await asyncio.sleep(3)
             elif c == "4":
                 target = await self.choose_target_candidate("本次单发对象")
                 if not target:
                     continue
+                if target["mode"] == "pick" and target["name"]:
+                    await self.cmd("click_candidate", {"name": target["name"]})
+                    await asyncio.sleep(3)
                 t = (await self.async_input("  内容: ")).strip()
                 if t:
                     ok = (await self.async_input("  确认? (y/n): ")).strip().lower()
                     if ok == "y":
-                        if target["mode"] == "current":
-                            await self.cmd("send_message", {"text": t})
-                            await asyncio.sleep(3)
-                        else:
-                            target_items = target.get("items", [])
-                            total = len(target_items)
-                            sent_names = set()
-                            sent = 0
-                            for i, ca in enumerate(target_items):
-                                if self.actions >= self.max_actions: break
-                                name = ca.get("name", "")
-                                if not name or name in sent_names:
-                                    continue
-                                print('  [' + str(i+1) + '/' + str(total) + '] ' + name)
-                                await self.cmd("click_candidate", {"name": name})
-                                await asyncio.sleep(self.rand_delay())
-                                await self.cmd("send_message", {"text": t})
-                                await asyncio.sleep(self.rand_delay())
-                                sent_names.add(name)
-                                sent += 1
-                            print('  已发送: ' + str(sent) + '/' + str(total))
+                        await self.cmd("send_message", {"text": t})
+                        await asyncio.sleep(3)
             elif c == "5":
                 if not self.candidates:
                     await self.cmd("scan_candidates")
@@ -530,52 +362,6 @@ class Bot:
                     self.print_candidate_list(self.filter_candidates("unread"), "未读名单")
                 else:
                     self.print_candidate_list(self.candidates, "全部名单")
-            elif c == "B":
-                if not await self.ensure_recommend_candidates():
-                    continue
-                self.print_recommend_groups()
-                groups = sorted(self.recommend_groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-                if not groups:
-                    continue
-                s = (await self.async_input("  岗位序号: ")).strip()
-                if not s.isdigit() or not (1 <= int(s) <= len(groups)):
-                    continue
-                intent, items = groups[int(s) - 1]
-                self.print_recommend_candidate_list(items, "将发送给 " + intent)
-                print("  1.模板消息  2.自定义消息")
-                send_mode = (await self.async_input("  选择: ")).strip()
-                text = ""
-                if send_mode == "1":
-                    for k, v in TEMPLATES.items():
-                        print("  " + k + ". " + v[:40] + "...")
-                    tk = (await self.async_input("  模板: ")).strip()
-                    if tk not in TEMPLATES:
-                        continue
-                    text = TEMPLATES[tk]
-                elif send_mode == "2":
-                    text = (await self.async_input("  内容: ")).strip()
-                    if not text:
-                        continue
-                else:
-                    continue
-                ok = (await self.async_input("  确认? (y/n): ")).strip().lower()
-                if ok != "y":
-                    continue
-                total = len(items)
-                sent = 0
-                sent_names = set()
-                for i, ca in enumerate(items):
-                    if self.actions >= self.max_actions:
-                        break
-                    name = ca.get("name", "")
-                    if not name or name in sent_names:
-                        continue
-                    print('  [' + str(i+1) + '/' + str(total) + '] ' + name + ' - ' + ca.get("intent", ""))
-                    await self.cmd("greet_recommend_candidate", {"name": name, "text": text})
-                    await asyncio.sleep(self.rand_delay())
-                    sent_names.add(name)
-                    sent += 1
-                print('  推荐牛人已发送: ' + str(sent) + '/' + str(total))
             else:
                 print("  输入0-9")
         self.server.close()

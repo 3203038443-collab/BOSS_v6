@@ -46,7 +46,6 @@ class Bot:
         self.min_delay = 4
         self.max_delay = 10
         self.page_title = ""
-        self.page_url = ""
 
     def cleanup_port(self):
         try:
@@ -153,14 +152,13 @@ class Bot:
     async def navigate_and_wait(self, url, wait_seconds=6):
         self.connected = False
         self.page_title = ""
-        self.page_url = ""
         await self.cmd("navigate_page", {"url": url})
-        for _ in range(wait_seconds * 4):
+        for _ in range(wait_seconds * 2):
             await asyncio.sleep(0.5)
-            if self.connected and self.page_url and self.page_url.startswith(url):
+            if self.connected:
                 break
-        await asyncio.sleep(2.5)
-        return bool(self.page_url and self.page_url.startswith(url))
+        await asyncio.sleep(2)
+        return True
 
     async def ensure_candidates(self):
         if self.candidates:
@@ -276,10 +274,7 @@ class Bot:
                         print("  [错误] " + str(s))
                 elif t == "connected":
                  self.page_title = d.get("title", "")
-                 self.page_url = d.get("url", "")
                  print("  页面: " + self.page_title[:40])
-                 if self.page_url:
-                     print("  URL: " + self.page_url[:80])
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -374,18 +369,12 @@ class Bot:
                 sc = (await self.async_input("  选择: ")).strip()
                 if sc == "2":
                     print("  切换到推荐牛人页面...")
-                    ok_nav = await self.navigate_and_wait(RECOMMEND_URL)
-                    if not ok_nav:
-                        print("  [!] 未成功切换到推荐牛人页面")
-                        continue
+                    await self.navigate_and_wait(RECOMMEND_URL)
                     await self.cmd("scan_recommend_candidates")
                     await asyncio.sleep(3)
                 else:
                     print("  切换到沟通页面...")
-                    ok_nav = await self.navigate_and_wait(COMM_URL)
-                    if not ok_nav:
-                        print("  [!] 未成功切换到沟通页面")
-                        continue
+                    await self.navigate_and_wait(COMM_URL)
                     await self.cmd("scan_candidates")
                     await asyncio.sleep(3)
             elif c == "7":

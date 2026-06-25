@@ -3,7 +3,6 @@ import random
 """BOSS直聘半自动助手v6.0 - 最终稳定版"""
 import asyncio, json, sys, subprocess, time, os
 from pathlib import Path
-import socket
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_DIR = SCRIPT_DIR.parent
@@ -11,8 +10,6 @@ EXT_PATH = str(PROJECT_DIR / "boss_extension")
 CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 USER_DATA_DIR = str(SCRIPT_DIR / "chrome_profile")
 BOSS_URL = "https://www.zhipin.com/web/chat/index"
-COMM_URL = "https://www.zhipin.com/web/chat/index"
-RECOMMEND_URL = "https://www.zhipin.com/web/chat/recommend"
 WS_PORT = 9876
 sys.path.insert(0, str(SCRIPT_DIR))
 import websockets
@@ -46,35 +43,6 @@ class Bot:
         self.min_delay = 4
         self.max_delay = 10
         self.page_title = ""
-        self.page_url = ""
-
-    def cleanup_port(self):
-        try:
-            cmd = [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                "Get-NetTCPConnection -LocalPort " + str(WS_PORT) + " -ErrorAction SilentlyContinue | "
-                "Select-Object -ExpandProperty OwningProcess -Unique | "
-                "ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"
-            ]
-            subprocess.run(cmd, capture_output=True, timeout=8)
-            time.sleep(1)
-        except Exception:
-            pass
-
-    def port_available(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sock.bind(("127.0.0.1", WS_PORT))
-            return True
-        except OSError:
-            return False
-        finally:
-            try:
-                sock.close()
-            except Exception:
-                pass
 
     def get_status_label(self, cand):
         if cand.get("has_read"):
@@ -149,18 +117,6 @@ class Bot:
         await self.cmd("scan_recommend_candidates")
         await asyncio.sleep(3)
         return bool(self.recommend_candidates)
-
-    async def navigate_and_wait(self, url, wait_seconds=6):
-        self.connected = False
-        self.page_title = ""
-        self.page_url = ""
-        await self.cmd("navigate_page", {"url": url})
-        for _ in range(wait_seconds * 4):
-            await asyncio.sleep(0.5)
-            if self.connected and self.page_url and self.page_url.startswith(url):
-                break
-        await asyncio.sleep(2.5)
-        return bool(self.page_url and self.page_url.startswith(url))
 
     async def ensure_candidates(self):
         if self.candidates:
@@ -276,10 +232,7 @@ class Bot:
                         print("  [错误] " + str(s))
                 elif t == "connected":
                  self.page_title = d.get("title", "")
-                 self.page_url = d.get("url", "")
                  print("  页面: " + self.page_title[:40])
-                 if self.page_url:
-                     print("  URL: " + self.page_url[:80])
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -308,12 +261,6 @@ class Bot:
         print("  BOSS直聘 半自动助手 v6.0")
         print("=" * 55)
         print()
-        print("[0/3] 清理旧连接...")
-        self.cleanup_port()
-        if not self.port_available():
-            print("  [!] 端口 " + str(WS_PORT) + " 仍被占用")
-            print("  请先关闭旧的助手窗口后再试")
-            return
         print("[1/3] 准备Chrome...")
         try:
             subprocess.run(["taskkill", "/f", "/im", "chrome.exe"], capture_output=True, timeout=5)
@@ -373,19 +320,9 @@ class Bot:
                 print("  1.扫描沟通列表  2.扫描推荐牛人")
                 sc = (await self.async_input("  选择: ")).strip()
                 if sc == "2":
-                    print("  切换到推荐牛人页面...")
-                    ok_nav = await self.navigate_and_wait(RECOMMEND_URL)
-                    if not ok_nav:
-                        print("  [!] 未成功切换到推荐牛人页面")
-                        continue
                     await self.cmd("scan_recommend_candidates")
                     await asyncio.sleep(3)
                 else:
-                    print("  切换到沟通页面...")
-                    ok_nav = await self.navigate_and_wait(COMM_URL)
-                    if not ok_nav:
-                        print("  [!] 未成功切换到沟通页面")
-                        continue
                     await self.cmd("scan_candidates")
                     await asyncio.sleep(3)
             elif c == "7":

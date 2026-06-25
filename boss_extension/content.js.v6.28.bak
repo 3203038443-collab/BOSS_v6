@@ -244,9 +244,8 @@
       if (!text) return false;
       var hasMeta = text.indexOf("学历") >= 0;
       var hasIntent = text.indexOf("最近关注") >= 0 || text.indexOf("期望") >= 0;
-      var hasSalary = /(\d+-\d+K|面议)/.test(text);
-      var hasCardTail = text.indexOf("未填写工作经历") >= 0 || text.indexOf("打招呼") >= 0;
-      return hasMeta && hasIntent && hasSalary && hasCardTail;
+      var hasSalary = /(^|\n)(\d+-\d+K|面议)(\n|$)/.test(text.replace(/\s+/g, "\n"));
+      return hasMeta && hasIntent && hasSalary;
     }
 
     function parseCandidate(card, idx) {
@@ -316,8 +315,8 @@
 
     var cardCandidates = Array.from(document.querySelectorAll("div, li, section, article")).filter(function(el) {
       var r = el.getBoundingClientRect();
-      if (r.width < 280 || r.height < 80) return false;
-      if (r.top < 80 || r.bottom > window.innerHeight + 40) return false;
+      if (r.width < 300 || r.height < 80) return false;
+      if (r.left > window.innerWidth * 0.2) return false;
       var text = (el.innerText || "").trim();
       return isRecommendCardText(text);
     });
@@ -335,24 +334,6 @@
     result.debug = "recommend_scan_cards:" + cardCandidates.length;
     console.log("[CT] scanRecommendTalents:", result.candidates.length, "candidates", result.debug);
     return result;
-  }
-
-  async function scanRecommendTalentsDeep() {
-    var best = null;
-    for (var round = 0; round < 5; round++) {
-      var current = scanRecommendTalents();
-      if (!best || current.candidates.length > best.candidates.length) best = current;
-      if (current.candidates.length > 0) {
-        best.debug = current.debug + "|round:" + round;
-        return best;
-      }
-      try {
-        window.scrollBy(0, Math.max(400, Math.round(window.innerHeight * 0.7)));
-      } catch (e) {}
-      await sleep(1200 + round * 400);
-    }
-    if (best) best.debug = (best.debug || "recommend_scan") + "|deep_retry";
-    return best || {candidates: [], groups: {}, page_url: location.href, page_title: document.title, debug: "recommend_scan_empty"};
   }
 
   async function greetRecommendTalent(name, text) {
@@ -388,18 +369,6 @@
       return true;
     }
     return false;
-  }
-
-  async function navigatePage(url) {
-    try {
-      if (!url) return false;
-      if (location.href === url) return true;
-      location.href = url;
-      return true;
-    } catch (e) {
-      console.log("[CT] navigatePage error:", e.message || e);
-      return false;
-    }
   }
 
   // ===== 点击候选人 =====
@@ -970,12 +939,12 @@ function scanDetail() {
         sendResponse({type: "chat_content", data: readChat()});
         break;
       case "scan_recommend_candidates":
-        scanRecommendTalentsDeep().then(function(data) {
-          sendResponse({type: "recommend_candidates", data: data});
-        }).catch(function(e) {
+        try {
+          sendResponse({type: "recommend_candidates", data: scanRecommendTalents()});
+        } catch(e) {
           sendResponse({type: "error", data: "recommend_scan_error:" + (e.message || e)});
-        });
-        return true;
+        }
+        break;
       case "check_read":
         sendResponse({type: "read_status", data: checkIfRead()});
         break;
@@ -990,9 +959,6 @@ function scanDetail() {
         return true;
       case "greet_recommend_candidate":
         greetRecommendTalent(msg.params.name, msg.params.text || "").then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed"}); }).catch(function(e) { sendResponse({type: "error", data: "greet_error:" + (e.message || e)}); });
-        return true;
-      case "navigate_page":
-        navigatePage(msg.params.url).then(function(ok) { sendResponse({type: "status", data: ok ? "navigating" : "error:navigate_failed"}); }).catch(function(e) { sendResponse({type: "error", data: "navigate_error:" + (e.message || e)}); });
         return true;
       case "ping":
         sendResponse({pong: true, time: Date.now()});
@@ -1029,19 +995,13 @@ function scanDetail() {
           if (msg.cmd === "scan_candidates") {
             cws.send(JSON.stringify({type: "candidates", data: scanAll()}));
           } else if (msg.cmd === "scan_recommend_candidates") {
-            scanRecommendTalentsDeep().then(function(data) {
-              cws.send(JSON.stringify({type: "recommend_candidates", data: data}));
-            }).catch(function(e) {
-              cws.send(JSON.stringify({type: "error", data: "recommend_scan_error:" + (e.message || e)}));
-            });
+            cws.send(JSON.stringify({type: "recommend_candidates", data: scanRecommendTalents()}));
           } else if (msg.cmd === "click_candidate" && msg.params && msg.params.name) {
             clickCand(msg.params.name).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "clicked" : "error:not_found"})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "click_error:" + (e.message || e)})); });
           } else if (msg.cmd === "send_message" && msg.params && msg.params.text) {
             sendMsg(msg.params.text).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed"})); });
           } else if (msg.cmd === "greet_recommend_candidate" && msg.params && msg.params.name) {
             greetRecommendTalent(msg.params.name, msg.params.text || "").then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed"})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "greet_error:" + (e.message || e)})); });
-          } else if (msg.cmd === "navigate_page" && msg.params && msg.params.url) {
-            navigatePage(msg.params.url).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "navigating" : "error:navigate_failed"})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "navigate_error:" + (e.message || e)})); });
           } else if (msg.cmd === "read_chat") {
             cws.send(JSON.stringify({type: "chat_content", data: readChat()}));
                   } else if (msg.cmd === "check_read") {
