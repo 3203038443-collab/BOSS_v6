@@ -129,23 +129,34 @@ class Bot:
             return "【新消息】"
         return "【未读】"
 
+    def page_matches(self, url_prefix=None, need_recommend_signals=False):
+        detail = getattr(self, "last_detail", None) or {}
+        detail_url = str(detail.get("url") or "")
+        detail_title = str(detail.get("title") or "")
+        current_url = str(self.page_url or "")
+        current_title = str(self.page_title or "")
+        if url_prefix and ((current_url and current_url.startswith(url_prefix)) or (detail_url and detail_url.startswith(url_prefix))):
+            return True
+        if need_recommend_signals:
+            merged_title = detail_title + " " + current_title
+            if "推荐" in merged_title:
+                return True
+            for el in detail.get("elements", []):
+                txt = (el.get("text") or "").strip()
+                if txt in ("推荐", "精选", "最新", "打招呼"):
+                    return True
+        return False
+
     async def wait_for_page_ready(self, url_prefix=None, timeout_seconds=20, min_body_len=200, need_recommend_signals=False):
         deadline = time.monotonic() + timeout_seconds
         last_detail = None
         while time.monotonic() < deadline:
             last_detail = getattr(self, "last_detail", None)
-            if url_prefix and self.page_url and self.page_url.startswith(url_prefix):
+            if self.page_matches(url_prefix, need_recommend_signals):
                 if last_detail and last_detail.get("bodyLength", 0) >= min_body_len:
-                    if not need_recommend_signals:
-                        return True
-                    elements = last_detail.get("elements", [])
-                    for el in elements:
-                        txt = (el.get("text") or "").strip()
-                        if txt == "打招呼" or txt == "推荐" or txt == "精选" or txt == "最新":
-                            return True
-                    title = (last_detail.get("title") or "") + " " + (self.page_title or "")
-                    if "推荐" in title:
-                        return True
+                    return True
+                if need_recommend_signals and last_detail and last_detail.get("bodyLength", 0) >= 120:
+                    return True
             await self.cmd("scan_detail")
             await asyncio.sleep(1)
         return False
@@ -222,14 +233,20 @@ class Bot:
         self.connected = False
         self.page_title = ""
         self.page_url = ""
+        self.last_detail = None
         await self.cmd("navigate_page", {"url": url})
         for _ in range(wait_seconds * 4):
             await asyncio.sleep(0.5)
-            if self.connected and self.page_url and self.page_url.startswith(url):
+            if self.connected and self.page_matches(url, "recommend" in url):
                 break
         ready = await self.wait_for_page_ready(url, timeout_seconds=15, min_body_len=500, need_recommend_signals=("recommend" in url))
         await asyncio.sleep(1.5)
-        return bool(self.page_url and self.page_url.startswith(url) and ready)
+        if ready:
+            return True
+        if self.page_matches(url, "recommend" in url):
+            print("  [i] 页面已切换，继续尝试扫描")
+            return True
+        return False
 
     async def ensure_candidates(self):
         if self.candidates:
