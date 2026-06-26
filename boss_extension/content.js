@@ -678,6 +678,54 @@
       return resultItems;
     }
 
+    function extractCandidatesFromFullText() {
+      var blocks = [];
+      for (var ri = 0; ri < roots.length; ri++) {
+        try {
+          var root = roots[ri];
+          var text = "";
+          if (root.body) text = root.body.innerText || "";
+          else if (root.host) text = root.host.innerText || "";
+          else if (root.documentElement) text = root.documentElement.innerText || "";
+          text = text || "";
+          if (text.trim()) {
+            blocks.push(text);
+          }
+        } catch (e) {}
+      }
+      if (blocks.length === 0) return [];
+      blocks.sort(function(a, b) { return b.length - a.length; });
+      var source = blocks[0];
+      var lines = source.split(/\n+/).map(cleanLine).filter(Boolean);
+      var headerRegex = /^[A-Za-z0-9_\u4e00-\u9fa5]{2,16}\s+\d{2}岁(?:\s+\d{2}年应届生)?/;
+      var resultItems = [];
+      for (var i = 0; i < lines.length; i++) {
+        if (!headerRegex.test(lines[i])) continue;
+        var chunk = [lines[i]];
+        for (var j = i + 1; j < lines.length && j < i + 8; j++) {
+          if (headerRegex.test(lines[j])) break;
+          chunk.push(lines[j]);
+        }
+        var infoLine = "";
+        var eduLine = "";
+        for (var k = 0; k < chunk.length; k++) {
+          if (!infoLine && /^(期望|最近关注)/.test(chunk[k])) infoLine = chunk[k];
+          if (!eduLine && /^学历/.test(chunk[k])) eduLine = chunk[k];
+        }
+        if (!infoLine || !eduLine) continue;
+        var candidate = buildCandidateFromLines([chunk[0], infoLine, eduLine], resultItems.length + 1, {
+          left: 0,
+          top: i * 10,
+          width: 1,
+          height: 1
+        });
+        if (candidate) {
+          resultItems.push(candidate);
+        }
+      }
+      return resultItems.slice(0, 10);
+    }
+
     var cardCandidates = normalizeCards(collectCards());
 
     for (var bi = 0; bi < cardCandidates.length; bi++) {
@@ -702,6 +750,21 @@
       }
       if (bandCandidates.length > 0) {
         result.debug = "recommend_scan_bands:" + bandCandidates.length + "|docs:" + docs.length + "|roots:" + roots.length;
+      }
+    }
+
+    if (result.candidates.length === 0) {
+      var textCandidates = extractCandidatesFromFullText();
+      for (var ti = 0; ti < textCandidates.length; ti++) {
+        var textItem = textCandidates[ti];
+        if (!textItem || seen[textItem.name + "|" + textItem.intent]) continue;
+        seen[textItem.name + "|" + textItem.intent] = true;
+        result.candidates.push(textItem);
+        if (!result.groups[textItem.intent]) result.groups[textItem.intent] = [];
+        result.groups[textItem.intent].push(textItem);
+      }
+      if (textCandidates.length > 0) {
+        result.debug = "recommend_scan_text:" + textCandidates.length + "|docs:" + docs.length + "|roots:" + roots.length;
       }
     }
 
