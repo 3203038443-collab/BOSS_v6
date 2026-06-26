@@ -51,6 +51,7 @@ class Bot:
         self.last_detail = None
         self.recommend_scan_best_score = None
         self.recommend_scan_debug = ""
+        self.recommend_card_samples = []
 
     def frame_meta(self, websocket=None, payload=None):
         meta = {}
@@ -101,6 +102,7 @@ class Bot:
         self.recommend_groups = {}
         self.recommend_scan_best_score = None
         self.recommend_scan_debug = ""
+        self.recommend_card_samples = []
 
     def recommend_response_score(self, websocket, payload):
         candidates = payload.get("candidates", []) if isinstance(payload, dict) else []
@@ -127,6 +129,7 @@ class Bot:
         self.recommend_candidates = payload.get("candidates", [])
         self.recommend_groups = payload.get("groups", {})
         self.recommend_scan_debug = str(payload.get("debug", "") or "")
+        self.recommend_card_samples = payload.get("card_samples", []) if isinstance(payload.get("card_samples", []), list) else []
         return True
 
     def cleanup_port(self):
@@ -359,6 +362,13 @@ class Bot:
                     self.print_recommend_name_list(self.recommend_candidates, "推荐牛人扫描到")
                     if not self.recommend_candidates and self.recommend_scan_debug:
                         print("  [i] 调试: " + self.recommend_scan_debug[:120])
+                    if not self.recommend_candidates and self.recommend_card_samples:
+                        for sample in self.recommend_card_samples[:3]:
+                            lines = sample.get("lines", [])[:4]
+                            reasons = ",".join(sample.get("reasons", []))
+                            print("  [i] 卡片" + str(sample.get("index", "?")) + ": " + reasons)
+                            for line in lines:
+                                print("      " + str(line)[:80])
                 elif t == "chat_content":
                     txt = d.get("full_text", "")[:200]
                     if txt:

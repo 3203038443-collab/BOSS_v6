@@ -316,7 +316,7 @@
 
   // ===== 扫描推荐牛人 =====
   function scanRecommendTalents() {
-    var result = {candidates: [], groups: {}, page_url: location.href, page_title: document.title, debug: "recommend_scan"};
+    var result = {candidates: [], groups: {}, page_url: location.href, page_title: document.title, debug: "recommend_scan", card_samples: []};
     var seen = {};
     var docs = collectAccessibleDocuments(document);
     var roots = collectQueryRoots(docs);
@@ -582,6 +582,39 @@
       }
     }
 
+    function inspectCandidateCard(card, idx) {
+      try {
+        var rawText = (card.innerText || "").trim();
+        var lines = rawText.split("\n").map(cleanLine).filter(Boolean);
+        var headerLine = "";
+        var infoLine = "";
+        var eduLine = "";
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          if (!headerLine && /\d{2}岁/.test(line)) headerLine = line;
+          if (!infoLine && /^(期望|最近关注)/.test(line)) infoLine = line;
+          if (!eduLine && /^学历/.test(line)) eduLine = line;
+        }
+        var parsed = buildCandidateFromLines(lines, idx, card.getBoundingClientRect());
+        var reasons = [];
+        if (!headerLine) reasons.push("missing_header");
+        if (!infoLine) reasons.push("missing_info");
+        if (!eduLine) reasons.push("missing_edu");
+        if (headerLine && !parsed) reasons.push("parse_rejected");
+        return {
+          index: idx,
+          reasons: reasons,
+          lines: lines.slice(0, 6)
+        };
+      } catch (e) {
+        return {
+          index: idx,
+          reasons: ["inspect_error:" + (e.message || e)],
+          lines: []
+        };
+      }
+    }
+
     function collectVisibleTextPieces() {
       var pieces = [];
       for (var ri = 0; ri < roots.length; ri++) {
@@ -749,6 +782,12 @@
       result.candidates.push(candidate);
       if (!result.groups[candidate.intent]) result.groups[candidate.intent] = [];
       result.groups[candidate.intent].push(candidate);
+    }
+
+    if (result.candidates.length === 0 && cardCandidates.length > 0) {
+      result.card_samples = cardCandidates.slice(0, 3).map(function(card, idx) {
+        return inspectCandidateCard(card, idx + 1);
+      });
     }
 
     if (result.candidates.length === 0) {
