@@ -748,7 +748,7 @@
           if (!eduLine && /^学历/.test(filtered[fj])) eduLine = filtered[fj];
         }
         if (!headerLine || !infoLine || !eduLine) continue;
-        var candidate = buildCandidateFromLines([headerLine, infoLine, eduLine], bi + 1, rect);
+        var candidate = buildCandidateFromLines(filtered.slice(0, 8), bi + 1, rect);
         if (candidate) resultItems.push(candidate);
       }
       return resultItems;
@@ -774,12 +774,29 @@
       var source = blocks[0];
       var lines = source.split(/\n+/).map(cleanLine).filter(Boolean);
       var headerRegex = /^[A-Za-z0-9_\u4e00-\u9fa5]{2,16}\s+\d{2}岁(?:\s+\d{2}年应届生)?/;
+      var ageLineRegex = /^\d{2}岁(?:\s+\d{2}年应届生)?(?:\s+(?:中专|大专|本科|硕士|博士))?(?:\s+\S+)?$/;
       var resultItems = [];
       for (var i = 0; i < lines.length; i++) {
-        if (!headerRegex.test(lines[i])) continue;
-        var chunk = [lines[i]];
-        for (var j = i + 1; j < lines.length && j < i + 8; j++) {
+        var start = i;
+        if (headerRegex.test(lines[i])) {
+          start = i;
+        } else if (
+          i + 1 < lines.length &&
+          !isBadRecommendName(lines[i]) &&
+          ageLineRegex.test(lines[i + 1])
+        ) {
+          start = i;
+        } else {
+          continue;
+        }
+        var chunk = [lines[start]];
+        for (var j = start + 1; j < lines.length && j < start + 10; j++) {
           if (headerRegex.test(lines[j])) break;
+          if (
+            j + 1 < lines.length &&
+            !isBadRecommendName(lines[j]) &&
+            ageLineRegex.test(lines[j + 1])
+          ) break;
           chunk.push(lines[j]);
         }
         var infoLine = "";
@@ -789,9 +806,9 @@
           if (!eduLine && /^学历/.test(chunk[k])) eduLine = chunk[k];
         }
         if (!infoLine || !eduLine) continue;
-        var candidate = buildCandidateFromLines([chunk[0], infoLine, eduLine], resultItems.length + 1, {
+        var candidate = buildCandidateFromLines(chunk, resultItems.length + 1, {
           left: 0,
-          top: i * 10,
+          top: start * 10,
           width: 1,
           height: 1
         });
@@ -802,16 +819,22 @@
       return resultItems.slice(0, 10);
     }
 
+    function pushRecommendCandidate(item) {
+      if (!item || seen[item.name + "|" + item.intent]) return false;
+      seen[item.name + "|" + item.intent] = true;
+      result.candidates.push(item);
+      if (!result.groups[item.intent]) result.groups[item.intent] = [];
+      result.groups[item.intent].push(item);
+      return true;
+    }
+
     var cardCandidates = normalizeCards(collectCards());
 
     for (var bi = 0; bi < cardCandidates.length; bi++) {
       var card = cardCandidates[bi];
       var candidate = parseCandidate(card, bi + 1);
-      if (!candidate || seen[candidate.name + "|" + candidate.intent]) continue;
-      seen[candidate.name + "|" + candidate.intent] = true;
-      result.candidates.push(candidate);
-      if (!result.groups[candidate.intent]) result.groups[candidate.intent] = [];
-      result.groups[candidate.intent].push(candidate);
+      if (!candidate) continue;
+      pushRecommendCandidate(candidate);
     }
 
     if (result.candidates.length === 0 && cardCandidates.length > 0) {
@@ -820,34 +843,24 @@
       });
     }
 
-    if (result.candidates.length === 0) {
-      var textCandidates = extractCandidatesFromFullText();
-      for (var ti = 0; ti < textCandidates.length; ti++) {
-        var textItem = textCandidates[ti];
-        if (!textItem || seen[textItem.name + "|" + textItem.intent]) continue;
-        seen[textItem.name + "|" + textItem.intent] = true;
-        result.candidates.push(textItem);
-        if (!result.groups[textItem.intent]) result.groups[textItem.intent] = [];
-        result.groups[textItem.intent].push(textItem);
-      }
-      if (textCandidates.length > 0) {
-        result.debug = "recommend_scan_text:" + textCandidates.length + "|docs:" + docs.length + "|roots:" + roots.length;
-      }
+    var textCandidates = extractCandidatesFromFullText();
+    for (var ti = 0; ti < textCandidates.length; ti++) {
+      var textItem = textCandidates[ti];
+      if (!textItem) continue;
+      pushRecommendCandidate(textItem);
+    }
+    if (textCandidates.length > 0) {
+      result.debug = "recommend_scan_text:" + textCandidates.length + "|docs:" + docs.length + "|roots:" + roots.length;
     }
 
-    if (result.candidates.length === 0) {
-      var bandCandidates = extractCandidatesByButtonBands();
-      for (var ci = 0; ci < bandCandidates.length; ci++) {
-        var item = bandCandidates[ci];
-        if (!item || seen[item.name + "|" + item.intent]) continue;
-        seen[item.name + "|" + item.intent] = true;
-        result.candidates.push(item);
-        if (!result.groups[item.intent]) result.groups[item.intent] = [];
-        result.groups[item.intent].push(item);
-      }
-      if (bandCandidates.length > 0) {
-        result.debug = "recommend_scan_bands:" + bandCandidates.length + "|docs:" + docs.length + "|roots:" + roots.length;
-      }
+    var bandCandidates = extractCandidatesByButtonBands();
+    for (var ci = 0; ci < bandCandidates.length; ci++) {
+      var item = bandCandidates[ci];
+      if (!item) continue;
+      pushRecommendCandidate(item);
+    }
+    if (bandCandidates.length > 0) {
+      result.debug = "recommend_scan_bands:" + bandCandidates.length + "|docs:" + docs.length + "|roots:" + roots.length;
     }
 
     if (result.debug === "recommend_scan") {
