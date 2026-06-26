@@ -268,6 +268,8 @@ class Bot:
                     print("  正文: " + str(d.get("bodyLength", 0)) + "字符")
                     if d.get("docCount"):
                         print("  文档: " + str(d.get("docCount")) + "个")
+                    if d.get("rootCount"):
+                        print("  根域: " + str(d.get("rootCount")) + "个")
                     print("  [元素]")
                     for el in d.get("elements", [])[:15]:
                         t2 = el.get("text", "")
