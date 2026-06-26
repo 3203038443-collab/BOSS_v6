@@ -207,6 +207,13 @@ class Bot:
             return [c for c in self.candidates if not c.get("has_read")]
         return list(self.candidates)
 
+    def resolve_comm_batch_targets(self, choice):
+        if choice == "2":
+            return self.filter_candidates("unread"), "沟通页未读名单"
+        if choice == "3":
+            return self.filter_candidates("read"), "沟通页已读名单"
+        return list(self.candidates), "沟通页全部名单"
+
     def print_candidate_list(self, items, title):
         print()
         print("  " + "=" * 45)
@@ -428,6 +435,35 @@ class Bot:
         await self.cmd("scan_candidates")
         await asyncio.sleep(3)
         return bool(self.candidates)
+
+    async def ensure_comm_candidates(self, force_refresh=False):
+        if force_refresh:
+            self.candidates = []
+        ok_nav = await self.navigate_and_wait(COMM_URL)
+        if not ok_nav:
+            print("  [!] 未成功切换到沟通页面")
+            return False
+        await self.cmd("scan_candidates")
+        await asyncio.sleep(3)
+        return bool(self.candidates)
+
+    async def choose_comm_batch_targets(self):
+        if not await self.ensure_comm_candidates(force_refresh=True):
+            return None
+        read_items = self.filter_candidates("read")
+        unread_items = self.filter_candidates("unread")
+        print("  1.全部发送")
+        print("  2.仅未读发送 (" + str(len(unread_items)) + "人)")
+        print("  3.仅已读发送 (" + str(len(read_items)) + "人)")
+        sc = (await self.async_input("  选择: ")).strip()
+        if sc not in ("1", "2", "3"):
+            return None
+        target_candidates, title = self.resolve_comm_batch_targets(sc)
+        self.print_candidate_list(target_candidates, title)
+        if not target_candidates:
+            print("  [i] 当前分组没有可发送的人，请切换为其他分组")
+            return None
+        return target_candidates
 
     async def choose_target_candidate(self, title="选择发送对象"):
         if not await self.ensure_candidates():
@@ -663,11 +699,12 @@ class Bot:
         while True:
             print()
             print("  操作: " + str(self.actions) + "/" + str(self.max_actions))
-            print("  1.扫描        2.打开对话")
-            print("  3.单发模板    4.单发自定义")
-            print("  5.批量发送    6.查看聊天")
-            print("  7.页面诊断    8.状态筛选")
-            print("  B.推荐牛人批量")
+            print("  1.扫描页面        2.打开沟通对话")
+            print("  3.沟通页单发模板  4.沟通页单发自定义")
+            print("  5.沟通页筛选并批量发送")
+            print("  6.查看当前聊天    7.页面诊断")
+            print("  8.沟通页查看已读/未读")
+            print("  B.推荐页筛选并批量发送")
             print("  9.测试连接    0.退出")
             c = (await self.async_input("  选择: ")).strip()
             c = c.upper()
@@ -782,30 +819,28 @@ class Bot:
                                 sent += 1
                             print('  已发送: ' + str(sent) + '/' + str(total))
             elif c == "5":
-                if not self.candidates:
-                    await self.cmd("scan_candidates")
-                    await asyncio.sleep(3)
-                if not self.candidates:
-                    continue
-                print("  1.全部发送  2.批量仅未读  3.批量仅已读")
-                sc = (await self.async_input("  选择: ")).strip()
-                if sc not in ("1", "2", "3"):
-                    continue
-                if sc == "2":
-                    target_candidates = self.filter_candidates("unread")
-                elif sc == "3":
-                    target_candidates = self.filter_candidates("read")
-                else:
-                    target_candidates = list(self.candidates)
-                self.print_candidate_list(target_candidates, "本次将发送给")
+                target_candidates = await self.choose_comm_batch_targets()
                 if not target_candidates:
                     continue
-                for k, v in TEMPLATES.items():
-                    print("  " + k + ". " + v[:40] + "...")
-                s = (await self.async_input("  模板: ")).strip()
-                if s not in TEMPLATES: continue
+                print("  1.模板消息  2.自定义消息")
+                send_mode = (await self.async_input("  选择: ")).strip()
+                text = ""
+                if send_mode == "1":
+                    for k, v in TEMPLATES.items():
+                        print("  " + k + ". " + v[:40] + "...")
+                    s = (await self.async_input("  模板: ")).strip()
+                    if s not in TEMPLATES:
+                        continue
+                    text = TEMPLATES[s]
+                elif send_mode == "2":
+                    text = (await self.async_input("  内容: ")).strip()
+                    if not text:
+                        continue
+                else:
+                    continue
                 ok = (await self.async_input("  确认? (y/n): ")).strip().lower()
-                if ok != "y": continue
+                if ok != "y":
+                    continue
                 total = len(target_candidates)
                 sent_names = set()
                 sent = 0
@@ -819,17 +854,14 @@ class Bot:
                     print('  [' + str(i+1) + '/' + str(total) + '] ' + name)
                     await self.cmd("click_candidate", {"name": name})
                     await asyncio.sleep(self.rand_delay())
-                    await self.cmd("send_message", {"text": TEMPLATES[s]})
+                    await self.cmd("send_message", {"text": text})
                     await asyncio.sleep(self.rand_delay())
                     sent_names.add(name)
                     sent += 1
                     
                 print('  \u5df2\u53d1\u9001: ' + str(sent) + '/' + str(total))
             elif c == "8":
-                if not self.candidates:
-                    await self.cmd("scan_candidates")
-                    await asyncio.sleep(3)
-                if not self.candidates:
+                if not await self.ensure_comm_candidates(force_refresh=True):
                     continue
                 print("  1.全部  2.仅已读  3.仅未读")
                 sc = (await self.async_input("  选择: ")).strip()
