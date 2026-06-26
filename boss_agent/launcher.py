@@ -4,6 +4,7 @@ import random
 import asyncio, json, sys, subprocess, time, os
 from pathlib import Path
 import socket
+from collections import OrderedDict
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_DIR = SCRIPT_DIR.parent
@@ -265,6 +266,132 @@ class Bot:
             print("    " + str(i).rjust(2) + ". " + intent + " (" + str(len(items)) + "人)")
         if not groups:
             print("  (空)")
+
+    def normalize_group_label(self, value, fallback):
+        value = str(value or "").strip()
+        return value if value else fallback
+
+    def build_recommend_groups_by(self, items, mode):
+        groups = OrderedDict()
+        for cand in items:
+            if mode == "intent":
+                key = self.normalize_group_label(cand.get("intent", ""), "未标注意向")
+            elif mode == "location":
+                key = self.normalize_group_label(cand.get("location", ""), "未标注地点")
+            elif mode == "degree":
+                key = self.normalize_group_label(cand.get("degree", ""), "未标注学历")
+            elif mode == "school":
+                key = self.normalize_group_label(cand.get("school", ""), "未标注学校")
+            else:
+                key = "全部"
+            groups.setdefault(key, []).append(cand)
+        return sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+
+    def print_recommend_groups_by(self, groups, title):
+        print()
+        print("  " + "=" * 45)
+        print("  " + title)
+        print("  " + "=" * 45)
+        for i, (label, items) in enumerate(groups, 1):
+            print("    " + str(i).rjust(2) + ". " + label + " (" + str(len(items)) + "人)")
+        if not groups:
+            print("  (空)")
+
+    def filter_recommend_by_keyword(self, items, keyword):
+        keyword = str(keyword or "").strip().lower()
+        if not keyword:
+            return list(items)
+        result = []
+        for cand in items:
+            haystack = " ".join([
+                cand.get("name", ""),
+                cand.get("location", ""),
+                cand.get("intent", ""),
+                cand.get("school", ""),
+                cand.get("major", ""),
+                cand.get("degree", "")
+            ]).lower()
+            if keyword in haystack:
+                result.append(cand)
+        return result
+
+    def parse_index_selection(self, raw, max_len):
+        selected = set()
+        for part in str(raw or "").split(","):
+            token = part.strip()
+            if not token:
+                continue
+            if "-" in token:
+                start_text, end_text = token.split("-", 1)
+                if not start_text.strip().isdigit() or not end_text.strip().isdigit():
+                    return None
+                start = int(start_text.strip())
+                end = int(end_text.strip())
+                if start > end or start < 1 or end > max_len:
+                    return None
+                for value in range(start, end + 1):
+                    selected.add(value)
+            else:
+                if not token.isdigit():
+                    return None
+                value = int(token)
+                if value < 1 or value > max_len:
+                    return None
+                selected.add(value)
+        return selected
+
+    async def choose_recommend_targets(self):
+        current_items = list(self.recommend_candidates)
+        while True:
+            self.print_recommend_candidate_list(current_items, "当前推荐名单")
+            print("  1.按意向分类  2.按地点分类")
+            print("  3.按学历分类  4.按学校分类")
+            print("  5.关键词筛选  6.手动排除")
+            print("  7.重置名单    8.确认发送")
+            print("  0.返回")
+            sc = (await self.async_input("  选择: ")).strip()
+            if sc == "0":
+                return None
+            if sc == "8":
+                return current_items
+            if sc == "7":
+                current_items = list(self.recommend_candidates)
+                continue
+            if sc in ("1", "2", "3", "4"):
+                mode_map = {
+                    "1": ("intent", "按意向分类"),
+                    "2": ("location", "按地点分类"),
+                    "3": ("degree", "按学历分类"),
+                    "4": ("school", "按学校分类"),
+                }
+                mode, title = mode_map[sc]
+                groups = self.build_recommend_groups_by(current_items, mode)
+                self.print_recommend_groups_by(groups, title)
+                if not groups:
+                    continue
+                pick = (await self.async_input("  分类序号: ")).strip()
+                if not pick.isdigit() or not (1 <= int(pick) <= len(groups)):
+                    continue
+                current_items = list(groups[int(pick) - 1][1])
+                continue
+            if sc == "5":
+                keyword = (await self.async_input("  关键词: ")).strip()
+                filtered = self.filter_recommend_by_keyword(current_items, keyword)
+                if not filtered:
+                    print("  [i] 未匹配到结果")
+                    continue
+                current_items = filtered
+                continue
+            if sc == "6":
+                if not current_items:
+                    continue
+                raw = (await self.async_input("  排除序号(如 1,3,5-7): ")).strip()
+                selected = self.parse_index_selection(raw, len(current_items))
+                if selected is None:
+                    print("  [i] 序号格式无效")
+                    continue
+                current_items = [cand for i, cand in enumerate(current_items, 1) if i not in selected]
+                continue
 
     async def ensure_recommend_candidates(self):
         self.reset_recommend_scan_state()
@@ -715,15 +842,10 @@ class Bot:
             elif c == "B":
                 if not await self.ensure_recommend_candidates():
                     continue
-                self.print_recommend_groups()
-                groups = sorted(self.recommend_groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-                if not groups:
+                target_items = await self.choose_recommend_targets()
+                if not target_items:
                     continue
-                s = (await self.async_input("  岗位序号: ")).strip()
-                if not s.isdigit() or not (1 <= int(s) <= len(groups)):
-                    continue
-                intent, items = groups[int(s) - 1]
-                self.print_recommend_candidate_list(items, "将发送给 " + intent)
+                self.print_recommend_candidate_list(target_items, "将发送给")
                 print("  1.模板消息  2.自定义消息")
                 send_mode = (await self.async_input("  选择: ")).strip()
                 text = ""
@@ -743,10 +865,10 @@ class Bot:
                 ok = (await self.async_input("  确认? (y/n): ")).strip().lower()
                 if ok != "y":
                     continue
-                total = len(items)
+                total = len(target_items)
                 sent = 0
                 sent_names = set()
-                for i, ca in enumerate(items):
+                for i, ca in enumerate(target_items):
                     if self.actions >= self.max_actions:
                         break
                     name = ca.get("name", "")
