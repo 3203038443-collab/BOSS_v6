@@ -4,6 +4,21 @@
   function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
   function rand(a, b) { return Math.random() * (b - a) + a; }
 
+  function frameMeta() {
+    var isTop = true;
+    try {
+      isTop = window.top === window;
+    } catch (e) {
+      isTop = false;
+    }
+    return {
+      frame_url: location.href,
+      title: document.title,
+      is_top_frame: isTop,
+      body_length: ((document.body && document.body.innerText) || "").length
+    };
+  }
+
   function collectAccessibleDocuments(rootDoc) {
     var docs = [];
     var seen = [];
@@ -1220,38 +1235,38 @@ function scanDetail() {
     switch(msg.cmd) {
       case "scan_candidates":
         try {
-          sendResponse({type: "candidates", data: scanAll()});
+          sendResponse({type: "candidates", data: scanAll(), meta: frameMeta()});
         } catch(e) {
-          sendResponse({type: "error", data: "scan_error:" + (e.message || e)});
+          sendResponse({type: "error", data: "scan_error:" + (e.message || e), meta: frameMeta()});
         }
         break;
       case "read_chat":
-        sendResponse({type: "chat_content", data: readChat()});
+        sendResponse({type: "chat_content", data: readChat(), meta: frameMeta()});
         break;
       case "scan_recommend_candidates":
         scanRecommendTalentsDeep().then(function(data) {
-          sendResponse({type: "recommend_candidates", data: data});
+          sendResponse({type: "recommend_candidates", data: data, meta: frameMeta()});
         }).catch(function(e) {
-          sendResponse({type: "error", data: "recommend_scan_error:" + (e.message || e)});
+          sendResponse({type: "error", data: "recommend_scan_error:" + (e.message || e), meta: frameMeta()});
         });
         return true;
       case "check_read":
-        sendResponse({type: "read_status", data: checkIfRead()});
+        sendResponse({type: "read_status", data: checkIfRead(), meta: frameMeta()});
         break;
       case "scan_detail":
-        sendResponse({type: "detail", data: scanDetail()});
+        sendResponse({type: "detail", data: scanDetail(), meta: frameMeta()});
         break;
       case "click_candidate":
-        clickCand(msg.params.name).then(function(ok) { sendResponse({type: "status", data: ok ? "clicked" : "error:not_found"}); }).catch(function(e) { sendResponse({type: "error", data: "click_error:" + (e.message || e)}); });
+        clickCand(msg.params.name).then(function(ok) { sendResponse({type: "status", data: ok ? "clicked" : "error:not_found", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "click_error:" + (e.message || e), meta: frameMeta()}); });
         return true;
       case "send_message":
-        sendMsg(msg.params.text).then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed"}); }).catch(function(e) { sendResponse({type: "error", data: "send_error:" + (e.message || e)}); });
+        sendMsg(msg.params.text).then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "send_error:" + (e.message || e), meta: frameMeta()}); });
         return true;
       case "greet_recommend_candidate":
-        greetRecommendTalent(msg.params.name, msg.params.text || "").then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed"}); }).catch(function(e) { sendResponse({type: "error", data: "greet_error:" + (e.message || e)}); });
+        greetRecommendTalent(msg.params.name, msg.params.text || "").then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "greet_error:" + (e.message || e), meta: frameMeta()}); });
         return true;
       case "navigate_page":
-        navigatePage(msg.params.url).then(function(ok) { sendResponse({type: "status", data: ok ? "navigating" : "error:navigate_failed"}); }).catch(function(e) { sendResponse({type: "error", data: "navigate_error:" + (e.message || e)}); });
+        navigatePage(msg.params.url).then(function(ok) { sendResponse({type: "status", data: ok ? "navigating" : "error:navigate_failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "navigate_error:" + (e.message || e), meta: frameMeta()}); });
         return true;
       case "ping":
         sendResponse({pong: true, time: Date.now()});
@@ -1266,7 +1281,7 @@ function scanDetail() {
   });
 
   // 通知后台
-  chrome.runtime.sendMessage({type: "connected", data: {url: location.href, title: document.title}});
+  chrome.runtime.sendMessage({type: "connected", data: {url: location.href, title: document.title, frame: frameMeta()}});
 
   // 心跳
   setInterval(function() { chrome.runtime.sendMessage({type: "ping"}); }, 15000);
@@ -1278,7 +1293,17 @@ function scanDetail() {
       var cws = new WebSocket('ws://127.0.0.1:9876');
       cws.onopen = function() {
         console.log('[CT] 直连WS已连接');
-        cws.send(JSON.stringify({type: "connected", data: {url: location.href, title: document.title}}));
+        cws.send(JSON.stringify({type: "connected", data: {url: location.href, title: document.title, frame: frameMeta()}}));
+        setTimeout(function() {
+          try {
+            cws.send(JSON.stringify({type: "detail", data: scanDetail(), meta: frameMeta()}));
+          } catch (e) {}
+        }, 1200);
+        setTimeout(function() {
+          try {
+            cws.send(JSON.stringify({type: "detail", data: scanDetail(), meta: frameMeta()}));
+          } catch (e) {}
+        }, 3200);
       };
       var sendMsgTimer = null;
   cws.onmessage = function(e) {
@@ -1286,29 +1311,29 @@ function scanDetail() {
           var msg = JSON.parse(e.data);
           console.log("[CT] 直连命令:", msg.cmd);
           if (msg.cmd === "scan_candidates") {
-            cws.send(JSON.stringify({type: "candidates", data: scanAll()}));
+            cws.send(JSON.stringify({type: "candidates", data: scanAll(), meta: frameMeta()}));
           } else if (msg.cmd === "scan_recommend_candidates") {
             scanRecommendTalentsDeep().then(function(data) {
-              cws.send(JSON.stringify({type: "recommend_candidates", data: data}));
+              cws.send(JSON.stringify({type: "recommend_candidates", data: data, meta: frameMeta()}));
             }).catch(function(e) {
-              cws.send(JSON.stringify({type: "error", data: "recommend_scan_error:" + (e.message || e)}));
+              cws.send(JSON.stringify({type: "error", data: "recommend_scan_error:" + (e.message || e), meta: frameMeta()}));
             });
           } else if (msg.cmd === "click_candidate" && msg.params && msg.params.name) {
-            clickCand(msg.params.name).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "clicked" : "error:not_found"})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "click_error:" + (e.message || e)})); });
+            clickCand(msg.params.name).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "clicked" : "error:not_found", meta: frameMeta()})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "click_error:" + (e.message || e), meta: frameMeta()})); });
           } else if (msg.cmd === "send_message" && msg.params && msg.params.text) {
-            sendMsg(msg.params.text).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed"})); });
+            sendMsg(msg.params.text).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()})); });
           } else if (msg.cmd === "greet_recommend_candidate" && msg.params && msg.params.name) {
-            greetRecommendTalent(msg.params.name, msg.params.text || "").then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed"})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "greet_error:" + (e.message || e)})); });
+            greetRecommendTalent(msg.params.name, msg.params.text || "").then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "greet_error:" + (e.message || e), meta: frameMeta()})); });
           } else if (msg.cmd === "navigate_page" && msg.params && msg.params.url) {
-            navigatePage(msg.params.url).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "navigating" : "error:navigate_failed"})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "navigate_error:" + (e.message || e)})); });
+            navigatePage(msg.params.url).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "navigating" : "error:navigate_failed", meta: frameMeta()})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "navigate_error:" + (e.message || e), meta: frameMeta()})); });
           } else if (msg.cmd === "read_chat") {
-            cws.send(JSON.stringify({type: "chat_content", data: readChat()}));
+            cws.send(JSON.stringify({type: "chat_content", data: readChat(), meta: frameMeta()}));
                   } else if (msg.cmd === "check_read") {
-            cws.send(JSON.stringify({type: "read_status", data: checkIfRead()}));
+            cws.send(JSON.stringify({type: "read_status", data: checkIfRead(), meta: frameMeta()}));
 } else if (msg.cmd === "scan_detail") {
-            cws.send(JSON.stringify({type: "detail", data: scanDetail()}));
+            cws.send(JSON.stringify({type: "detail", data: scanDetail(), meta: frameMeta()}));
           } else if (msg.cmd === "ping") {
-            cws.send(JSON.stringify({type: "pong", data: "ok"}));
+            cws.send(JSON.stringify({type: "pong", data: "ok", meta: frameMeta()}));
           }
         } catch(ex) { console.log("[CT] 直连解析错误:", ex.message); }
       };

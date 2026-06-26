@@ -27,7 +27,7 @@ function tryInjectAndSend(tabId, msg, callback) {
     if (chrome.runtime.lastError) {
       // 注入内容脚本后重试
       chrome.scripting.executeScript({
-        target: {tabId: tabId},
+        target: {tabId: tabId, allFrames: true},
         files: ["content.js"]
       }, function() {
         if (chrome.runtime.lastError) {

@@ -34,6 +34,7 @@ TEMPLATES = {
 class Bot:
     def __init__(self):
         self.ws = None
+        self.clients = {}
         self.connected = False
         self.candidates = []
         self.recommend_candidates = []
@@ -48,6 +49,50 @@ class Bot:
         self.page_title = ""
         self.page_url = ""
         self.last_detail = None
+
+    def frame_meta(self, websocket=None, payload=None):
+        meta = {}
+        if websocket in self.clients:
+            meta.update(self.clients[websocket].get("meta", {}))
+        if payload and isinstance(payload, dict):
+            meta.update(payload)
+        return meta
+
+    def update_client_meta(self, websocket, payload=None):
+        if websocket not in self.clients:
+            self.clients[websocket] = {"meta": {}, "last_detail": None}
+        if payload and isinstance(payload, dict):
+            self.clients[websocket]["meta"].update(payload)
+
+    def select_client(self, purpose="default", require_top=False):
+        alive = list(self.clients.keys())
+        if not alive:
+            return self.ws
+        best_ws = None
+        best_score = None
+        for websocket in alive:
+            client = self.clients.get(websocket, {})
+            meta = client.get("meta", {})
+            detail = client.get("last_detail") or {}
+            is_top = 1 if meta.get("is_top_frame") else 0
+            body_length = int(detail.get("bodyLength", meta.get("body_length", 0)) or 0)
+            url = str(meta.get("frame_url") or meta.get("url") or "")
+            recommend_hit = 1 if url.startswith(RECOMMEND_URL) else 0
+            current_hit = 1 if url.startswith(self.page_url or "") and self.page_url else 0
+            if purpose == "recommend":
+                score = (recommend_hit, body_length, -is_top)
+            elif purpose == "detail":
+                score = (current_hit, body_length, -is_top)
+            else:
+                score = (is_top, current_hit, body_length)
+            if require_top and not is_top:
+                continue
+            if best_score is None or score > best_score:
+                best_ws = websocket
+                best_score = score
+        if best_ws:
+            return best_ws
+        return self.ws
 
     def cleanup_port(self):
         try:
@@ -227,6 +272,7 @@ class Bot:
 
     async def handler(self, websocket):
         self.ws = websocket
+        self.clients[websocket] = {"meta": {}, "last_detail": None}
         self.connected = True
         print()
         print("  [OK] 扩展已连接")
@@ -235,6 +281,8 @@ class Bot:
                 data = json.loads(msg)
                 t = data.get("type", "")
                 d = data.get("data", {})
+                meta = data.get("meta") or d.get("frame") or {}
+                self.update_client_meta(websocket, meta)
                 if t == "candidates":
                     self.candidates = d.get("candidates", [])
                     self.print_candidate_list(self.candidates, "扫描到")
@@ -244,6 +292,9 @@ class Bot:
                     if not self.candidates:
                         print("  (未找到候选人，可能页面结构变化)")
                 elif t == "recommend_candidates":
+                    current_best = self.select_client("recommend")
+                    if current_best != websocket:
+                        continue
                     self.recommend_candidates = d.get("candidates", [])
                     self.recommend_groups = d.get("groups", {})
                     print()
@@ -259,6 +310,10 @@ class Bot:
                         print()
                         print("  [聊天内容] " + txt[:120])
                 elif t == "detail":
+                    self.clients[websocket]["last_detail"] = d
+                    current_best = self.select_client("detail")
+                    if current_best != websocket:
+                        continue
                     self.last_detail = d
                     self.page_title = d.get("title", self.page_title)
                     self.page_url = d.get("url", self.page_url)
@@ -308,7 +363,9 @@ class Bot:
                 elif t == "connected":
                  self.page_title = d.get("title", "")
                  self.page_url = d.get("url", "")
-                 print("  页面: " + self.page_title[:40])
+                 frame = self.frame_meta(websocket)
+                 tag = "顶层" if frame.get("is_top_frame") else "子层"
+                 print("  页面: " + self.page_title[:40] + " [" + tag + "]")
                  if self.page_url:
                      print("  URL: " + self.page_url[:80])
         except asyncio.CancelledError:
@@ -316,16 +373,30 @@ class Bot:
         except Exception as e:
             print("  [!] 消息异常: " + str(e)[:60])
         finally:
-            self.connected = False
+            if websocket in self.clients:
+                self.clients.pop(websocket, None)
+            if self.ws == websocket:
+                self.ws = self.select_client()
+            self.connected = bool(self.clients)
             print()
             print("  [!] 连接已断开")
 
     async def cmd(self, cmd, params=None):
-        if not self.ws: return
+        target_ws = None
+        if cmd == "navigate_page":
+            target_ws = self.select_client("default", require_top=True)
+        elif cmd == "scan_recommend_candidates":
+            target_ws = self.select_client("recommend")
+        elif cmd == "scan_detail":
+            target_ws = self.select_client("detail")
+        else:
+            target_ws = self.select_client()
+        if not target_ws:
+            return
         m = {"cmd": cmd}
         if params: m["params"] = params
         try:
-            await self.ws.send(json.dumps(m))
+            await target_ws.send(json.dumps(m))
         except Exception as e:
             print("  [!] 发送失败: " + str(e)[:40])
 
