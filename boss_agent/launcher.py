@@ -49,6 +49,8 @@ class Bot:
         self.page_title = ""
         self.page_url = ""
         self.last_detail = None
+        self.recommend_scan_best_score = None
+        self.recommend_scan_debug = ""
 
     def frame_meta(self, websocket=None, payload=None):
         meta = {}
@@ -93,6 +95,39 @@ class Bot:
         if best_ws:
             return best_ws
         return self.ws
+
+    def reset_recommend_scan_state(self):
+        self.recommend_candidates = []
+        self.recommend_groups = {}
+        self.recommend_scan_best_score = None
+        self.recommend_scan_debug = ""
+
+    def recommend_response_score(self, websocket, payload):
+        candidates = payload.get("candidates", []) if isinstance(payload, dict) else []
+        groups = payload.get("groups", {}) if isinstance(payload, dict) else {}
+        client = self.clients.get(websocket, {})
+        meta = client.get("meta", {})
+        detail = client.get("last_detail") or {}
+        body_length = int(detail.get("bodyLength", meta.get("body_length", 0)) or 0)
+        is_top = 1 if meta.get("is_top_frame") else 0
+        group_total = 0
+        if isinstance(groups, dict):
+            for items in groups.values():
+                if isinstance(items, list):
+                    group_total += len(items)
+        return (len(candidates), group_total, body_length, -is_top)
+
+    def record_recommend_scan_response(self, websocket, payload):
+        if not isinstance(payload, dict):
+            return False
+        score = self.recommend_response_score(websocket, payload)
+        if self.recommend_scan_best_score is not None and score <= self.recommend_scan_best_score:
+            return False
+        self.recommend_scan_best_score = score
+        self.recommend_candidates = payload.get("candidates", [])
+        self.recommend_groups = payload.get("groups", {})
+        self.recommend_scan_debug = str(payload.get("debug", "") or "")
+        return True
 
     def cleanup_port(self):
         try:
@@ -229,8 +264,7 @@ class Bot:
             print("  (空)")
 
     async def ensure_recommend_candidates(self):
-        self.recommend_candidates = []
-        self.recommend_groups = {}
+        self.reset_recommend_scan_state()
         await self.wait_for_page_ready(RECOMMEND_URL, timeout_seconds=20, min_body_len=500, need_recommend_signals=True)
         await self.cmd("scan_recommend_candidates")
         for _ in range(6):
@@ -319,12 +353,12 @@ class Bot:
                     if not self.candidates:
                         print("  (未找到候选人，可能页面结构变化)")
                 elif t == "recommend_candidates":
-                    current_best = self.select_client("recommend")
-                    if current_best != websocket:
+                    accepted = self.record_recommend_scan_response(websocket, d)
+                    if not accepted:
                         continue
-                    self.recommend_candidates = d.get("candidates", [])
-                    self.recommend_groups = d.get("groups", {})
                     self.print_recommend_name_list(self.recommend_candidates, "推荐牛人扫描到")
+                    if not self.recommend_candidates and self.recommend_scan_debug:
+                        print("  [i] 调试: " + self.recommend_scan_debug[:120])
                 elif t == "chat_content":
                     txt = d.get("full_text", "")[:200]
                     if txt:
@@ -404,10 +438,21 @@ class Bot:
 
     async def cmd(self, cmd, params=None):
         target_ws = None
+        if cmd == "scan_recommend_candidates":
+            targets = list(self.clients.keys())
+            if not targets and self.ws:
+                targets = [self.ws]
+            m = {"cmd": cmd}
+            if params:
+                m["params"] = params
+            for websocket in targets:
+                try:
+                    await websocket.send(json.dumps(m))
+                except Exception as e:
+                    print("  [!] 发送失败: " + str(e)[:40])
+            return
         if cmd == "navigate_page":
             target_ws = self.select_client("default", require_top=True)
-        elif cmd == "scan_recommend_candidates":
-            target_ws = self.select_client("recommend")
         elif cmd == "scan_detail":
             target_ws = self.select_client("detail")
         else:
@@ -497,8 +542,7 @@ class Bot:
                 sc = (await self.async_input("  选择: ")).strip()
                 if sc == "2":
                     print("  切换到推荐牛人页面...")
-                    self.recommend_candidates = []
-                    self.recommend_groups = {}
+                    self.reset_recommend_scan_state()
                     ok_nav = await self.navigate_and_wait(RECOMMEND_URL)
                     if not ok_nav:
                         print("  [!] 未成功切换到推荐牛人页面")
