@@ -359,7 +359,7 @@ class Bot:
                     accepted = self.record_recommend_scan_response(websocket, d)
                     if not accepted:
                         continue
-                    self.print_recommend_name_list(self.recommend_candidates, "推荐牛人扫描到")
+                    self.print_recommend_candidate_list(self.recommend_candidates, "推荐牛人扫描到")
                     if not self.recommend_candidates and self.recommend_scan_debug:
                         print("  [i] 调试: " + self.recommend_scan_debug[:120])
                     if not self.recommend_candidates and self.recommend_card_samples:

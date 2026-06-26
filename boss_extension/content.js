@@ -424,7 +424,7 @@
       if (text.length < 2 || text.length > 16) return true;
       if (/^\d+$/.test(text)) return true;
       if (isSalaryLike(text)) return true;
-      if (/^(推荐|精选|最新|筛选|打招呼|在线|活跃|沟通|立即沟通|继续沟通|简历|校园合伙人|牛人|未标注意向)$/.test(text)) return true;
+      if (/^(推荐|精选|最新|筛选|打招呼|在线|活跃|沟通|立即沟通|继续沟通|简历|校园合伙人|牛人|未标注意向|求职者)$/.test(text)) return true;
       if (/(工作经历|最近关注|期望|学历|武汉|北京|上海|深圳|广州)/.test(text) && text.length <= 4) return true;
       if (/[【】\[\]|｜·•,.，。:：]/.test(text)) return true;
       return false;
