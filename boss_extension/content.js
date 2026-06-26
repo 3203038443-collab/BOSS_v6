@@ -447,6 +447,7 @@
         var infoLine = "";
         var eduLine = "";
         var headerLine = "";
+        var headerIndex = -1;
         var infoLineIndex = -1;
         var eduLineIndex = -1;
 
@@ -476,9 +477,20 @@
           return null;
         }
 
+        function nextContentLine(startIndex) {
+          for (var ni = startIndex + 1; ni < lines.length; ni++) {
+            var nextLine = cleanLine(lines[ni]);
+            if (!nextLine) continue;
+            if (/^(期望|最近关注|学历)$/.test(nextLine)) continue;
+            return nextLine;
+          }
+          return "";
+        }
+
         for (var li = 0; li < lines.length; li++) {
           if (!headerLine && /\d{2}岁/.test(lines[li])) {
             headerLine = lines[li];
+            headerIndex = li;
           }
           if (isSalaryLike(lines[li])) salary = lines[li];
           if (infoLineIndex < 0 && (lines[li].indexOf("最近关注") === 0 || lines[li].indexOf("期望") === 0)) {
@@ -493,20 +505,36 @@
 
         if (!headerLine || !infoLine || !eduLine) return null;
 
+        var combinedHeader = headerLine;
         var headerTokens = headerLine.split(" ").filter(Boolean);
-        if (headerTokens.length > 0) name = headerTokens[0];
-        for (var i = 1; i < headerTokens.length; i++) {
+        if (headerTokens.length > 0 && !/^\d{2}岁$/.test(headerTokens[0])) {
+          name = headerTokens[0];
+        } else if (headerIndex > 0) {
+          var prevLine = cleanLine(lines[headerIndex - 1]);
+          if (prevLine && !isSalaryLike(prevLine) && !isBadRecommendName(prevLine)) {
+            name = prevLine;
+            combinedHeader = prevLine + " " + headerLine;
+            headerTokens = combinedHeader.split(" ").filter(Boolean);
+          }
+        }
+        for (var i = 0; i < headerTokens.length; i++) {
           var token = headerTokens[i];
+          if (!name && !/^\d{2}岁$/.test(token) && !/^\d{2}年应届生$/.test(token) && !/^(中专|大专|本科|硕士|博士)$/.test(token)) {
+            name = token;
+            continue;
+          }
           if (/^\d{2}岁$/.test(token)) age = token;
           else if (/^\d{2}年应届生$/.test(token)) graduateYear = token;
           else if (/^(中专|大专|本科|硕士|博士)$/.test(token)) degree = token;
-          else status += (status ? " " : "") + token;
+          else if (token !== name) status += (status ? " " : "") + token;
         }
         if (!name || name.length > 20 || isBadRecommendName(name)) return null;
         if (!age) return null;
 
         if (infoLine) {
-          var line2 = sanitizeDataLine(infoLine.replace(/^最近关注|^期望/, "").trim());
+          var rawInfo = infoLine.replace(/^最近关注|^期望/, "").trim();
+          if (!rawInfo && infoLineIndex >= 0) rawInfo = nextContentLine(infoLineIndex);
+          var line2 = sanitizeDataLine(rawInfo);
           var parts2 = splitByDivider(line2);
           if (parts2.length >= 2) {
             location = parts2[0];
@@ -519,7 +547,9 @@
         if (!location && !intent) return null;
 
         if (eduLine) {
-          var line3 = sanitizeDataLine(eduLine.replace(/^学历/, "").trim());
+          var rawEdu = eduLine.replace(/^学历/, "").trim();
+          if (!rawEdu && eduLineIndex >= 0) rawEdu = nextContentLine(eduLineIndex);
+          var line3 = sanitizeDataLine(rawEdu);
           var parts3 = splitByDivider(line3);
           var degreeHit = pickDegree(parts3);
           if (parts3.length >= 1) {
