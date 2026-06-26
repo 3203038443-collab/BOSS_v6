@@ -870,6 +870,44 @@
     return result;
   }
 
+  function activateRecommendTab() {
+    function normalizeText(text) {
+      return (text || "").replace(/\s+/g, " ").trim();
+    }
+    function isVisible(el) {
+      if (!el) return false;
+      var r = el.getBoundingClientRect();
+      return r.width > 20 && r.height > 12 && r.bottom > 0 && r.top < window.innerHeight;
+    }
+    function clickLikeUser(el) {
+      try { el.dispatchEvent(new MouseEvent("mouseover", {bubbles: true})); } catch (e) {}
+      try { el.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, cancelable: true, button: 0})); } catch (e) {}
+      try { el.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, cancelable: true, button: 0})); } catch (e) {}
+      try { el.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, button: 0})); } catch (e) {}
+      try { el.click(); } catch (e) {}
+    }
+    var all = Array.from(document.querySelectorAll("a, button, div, span"));
+    var candidates = all.filter(function(el) {
+      var text = normalizeText(el.innerText || el.textContent || "");
+      if (text !== "推荐牛人") return false;
+      if (!isVisible(el)) return false;
+      var rect = el.getBoundingClientRect();
+      return rect.top < Math.max(220, window.innerHeight * 0.35);
+    }).sort(function(a, b) {
+      var ar = a.getBoundingClientRect();
+      var br = b.getBoundingClientRect();
+      if (Math.abs(ar.top - br.top) > 8) return ar.top - br.top;
+      return ar.left - br.left;
+    });
+    for (var i = 0; i < candidates.length; i++) {
+      var target = candidates[i].closest("a, button, [role=button], [role=link]") || candidates[i];
+      if (!isVisible(target)) continue;
+      clickLikeUser(target);
+      return true;
+    }
+    return false;
+  }
+
   async function scanRecommendTalentsDeep() {
     var best = null;
     function scrollTargets() {
@@ -900,6 +938,12 @@
       return true;
     }
     for (var round = 0; round < 5; round++) {
+      if (round === 0 || (best && best.candidates.length === 0)) {
+        try {
+          activateRecommendTab();
+        } catch (e) {}
+        await sleep(900 + round * 300);
+      }
       var current = scanRecommendTalents();
       if (!best || current.candidates.length > best.candidates.length) best = current;
       if (current.candidates.length > 0) {

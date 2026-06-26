@@ -408,7 +408,10 @@ class Bot:
             await asyncio.sleep(1)
             if self.recommend_candidates:
                 return True
-        return bool(self.recommend_candidates)
+        return self.can_enter_recommend_filter()
+
+    def can_enter_recommend_filter(self):
+        return self.page_matches(RECOMMEND_URL, need_recommend_signals=True)
 
     async def navigate_and_wait(self, url, wait_seconds=6):
         self.connected = False
@@ -875,9 +878,12 @@ class Bot:
                 if not await self.ensure_recommend_candidates():
                     continue
                 target_items = await self.choose_recommend_targets()
-                if not target_items:
+                if target_items is None:
                     continue
                 self.print_recommend_candidate_list(target_items, "将发送给")
+                if not target_items:
+                    print("  [i] 当前推荐名单为空，请先重新扫描或切换到有内容的推荐页")
+                    continue
                 print("  1.模板消息  2.自定义消息")
                 send_mode = (await self.async_input("  选择: ")).strip()
                 text = ""
