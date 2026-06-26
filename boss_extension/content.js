@@ -413,12 +413,8 @@
       }).slice(0, 10);
     }
 
-    function parseCandidate(card, idx) {
+    function buildCandidateFromLines(lines, idx, anchorRect) {
       try {
-        var rawText = (card.innerText || "").trim();
-        var text = cleanLine(rawText);
-        if (!text) return null;
-        var lines = rawText.split("\n").map(cleanLine).filter(Boolean);
         if (lines.length < 3) return null;
         var name = "";
         var age = "";
@@ -531,7 +527,7 @@
             }
           }
         }
-        var r = card.getBoundingClientRect();
+        var r = anchorRect;
         return {
           name: name,
           age: age,
@@ -552,6 +548,136 @@
       }
     }
 
+    function parseCandidate(card, idx) {
+      try {
+        var rawText = (card.innerText || "").trim();
+        var text = cleanLine(rawText);
+        if (!text) return null;
+        var lines = rawText.split("\n").map(cleanLine).filter(Boolean);
+        return buildCandidateFromLines(lines, idx, card.getBoundingClientRect());
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function collectVisibleTextPieces() {
+      var pieces = [];
+      for (var ri = 0; ri < roots.length; ri++) {
+        try {
+          var rootNode = roots[ri].body || roots[ri];
+          var walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, null, false);
+          var node;
+          while ((node = walker.nextNode())) {
+            var text = cleanLine(node.textContent || "");
+            if (!text || text.length > 80) continue;
+            var parent = node.parentElement;
+            if (!parent) continue;
+            var rect = parent.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) continue;
+            if (rect.bottom < 0 || rect.top > window.innerHeight + 200) continue;
+            pieces.push({
+              text: text,
+              left: rect.left,
+              right: rect.right,
+              top: rect.top,
+              bottom: rect.bottom,
+              midY: rect.top + rect.height / 2
+            });
+          }
+        } catch (e) {}
+      }
+      return pieces;
+    }
+
+    function clusterBandLines(pieces, top, bottom, maxLeft) {
+      var band = pieces.filter(function(piece) {
+        return piece.midY >= top && piece.midY <= bottom && piece.left < maxLeft;
+      }).sort(function(a, b) {
+        if (Math.abs(a.top - b.top) > 10) return a.top - b.top;
+        return a.left - b.left;
+      });
+      var lines = [];
+      for (var i = 0; i < band.length; i++) {
+        var piece = band[i];
+        var target = null;
+        for (var j = 0; j < lines.length; j++) {
+          if (Math.abs(lines[j].midY - piece.midY) <= 12) {
+            target = lines[j];
+            break;
+          }
+        }
+        if (!target) {
+          target = { midY: piece.midY, items: [] };
+          lines.push(target);
+        }
+        target.items.push(piece);
+      }
+      return lines.map(function(line) {
+        var seenText = {};
+        var merged = line.items.sort(function(a, b) { return a.left - b.left; }).map(function(item) {
+          if (seenText[item.text]) return "";
+          seenText[item.text] = true;
+          return item.text;
+        }).filter(Boolean).join(" ");
+        return cleanLine(merged);
+      }).filter(Boolean);
+    }
+
+    function extractCandidatesByButtonBands() {
+      var resultItems = [];
+      var usedBands = {};
+      var textPieces = collectVisibleTextPieces();
+      var greetButtons = queryAllRoots(roots, "button, a, span, div").filter(function(el) {
+        var text = cleanLine(el.innerText || el.textContent || "");
+        if (text !== "打招呼") return false;
+        var rect = el.getBoundingClientRect();
+        return rect.width > 40 && rect.height > 20 && rect.right > window.innerWidth * 0.65 && rect.bottom > 0 && rect.top < window.innerHeight + 100;
+      }).sort(function(a, b) {
+        return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+      }).slice(0, 10);
+
+      for (var bi = 0; bi < greetButtons.length; bi++) {
+        var rect = greetButtons[bi].getBoundingClientRect();
+        var bandKey = Math.round(rect.top / 20);
+        if (usedBands[bandKey]) continue;
+        usedBands[bandKey] = true;
+        var lines = clusterBandLines(textPieces, rect.top - 36, rect.bottom + 42, rect.left - 20);
+        var filtered = [];
+        for (var li = 0; li < lines.length; li++) {
+          var line = lines[li];
+          if (!line) continue;
+          if (line === "打招呼" || line === "筛选" || line === "推荐" || line === "精选" || line === "最新") continue;
+          filtered.push(line);
+        }
+        var headerLine = "";
+        for (var fi = 0; fi < filtered.length; fi++) {
+          if (/(\d{2}岁|\d{2}年应届生|本科|大专|硕士|博士)/.test(filtered[fi])) {
+            headerLine = filtered[fi];
+            break;
+          }
+        }
+        var infoLine = "";
+        var eduLine = "";
+        for (var fj = 0; fj < filtered.length; fj++) {
+          if (!infoLine && /^(\u671f\u671b|\u6700\u8fd1\u5173\u6ce8)/.test(filtered[fj])) infoLine = filtered[fj];
+          if (!eduLine && /^学历/.test(filtered[fj])) eduLine = filtered[fj];
+        }
+        var candidateLines = [];
+        if (headerLine) candidateLines.push(headerLine);
+        if (infoLine) candidateLines.push(infoLine);
+        if (eduLine) candidateLines.push(eduLine);
+        if (candidateLines.length < 3) {
+          for (var fk = 0; fk < filtered.length; fk++) {
+            if (candidateLines.indexOf(filtered[fk]) < 0) candidateLines.push(filtered[fk]);
+            if (candidateLines.length >= 3) break;
+          }
+        }
+        var candidate = buildCandidateFromLines(candidateLines.slice(0, 4), bi + 1, rect);
+        if (candidate) resultItems.push(candidate);
+      }
+      return resultItems;
+    }
+
     var cardCandidates = normalizeCards(collectCards());
 
     for (var bi = 0; bi < cardCandidates.length; bi++) {
@@ -564,7 +690,24 @@
       result.groups[candidate.intent].push(candidate);
     }
 
-    result.debug = "recommend_scan_docs:" + docs.length + "|roots:" + roots.length + "|cards:" + cardCandidates.length;
+    if (result.candidates.length === 0) {
+      var bandCandidates = extractCandidatesByButtonBands();
+      for (var ci = 0; ci < bandCandidates.length; ci++) {
+        var item = bandCandidates[ci];
+        if (!item || seen[item.name + "|" + item.intent]) continue;
+        seen[item.name + "|" + item.intent] = true;
+        result.candidates.push(item);
+        if (!result.groups[item.intent]) result.groups[item.intent] = [];
+        result.groups[item.intent].push(item);
+      }
+      if (bandCandidates.length > 0) {
+        result.debug = "recommend_scan_bands:" + bandCandidates.length + "|docs:" + docs.length + "|roots:" + roots.length;
+      }
+    }
+
+    if (result.debug === "recommend_scan") {
+      result.debug = "recommend_scan_docs:" + docs.length + "|roots:" + roots.length + "|cards:" + cardCandidates.length;
+    }
     console.log("[CT] scanRecommendTalents:", result.candidates.length, "candidates", result.debug);
     return result;
   }
