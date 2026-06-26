@@ -413,25 +413,32 @@
       }).slice(0, 10);
     }
 
+    function isSalaryLike(text) {
+      text = cleanLine(text);
+      return /^(\d+(?:\.\d+)?-\d+(?:\.\d+)?K|面议|\d+薪)$/.test(text);
+    }
+
+    function isBadRecommendName(text) {
+      text = cleanLine(text);
+      if (!text) return true;
+      if (text.length < 2 || text.length > 16) return true;
+      if (/^\d+$/.test(text)) return true;
+      if (isSalaryLike(text)) return true;
+      if (/^(推荐|精选|最新|筛选|打招呼|在线|活跃|沟通|立即沟通|继续沟通|简历|校园合伙人|牛人|未标注意向)$/.test(text)) return true;
+      if (/(工作经历|最近关注|期望|学历|武汉|北京|上海|深圳|广州)/.test(text) && text.length <= 4) return true;
+      if (/[【】\[\]|｜·•,.，。:：]/.test(text)) return true;
+      return false;
+    }
+
     function buildCandidateFromLines(lines, idx, anchorRect) {
       try {
         if (lines.length < 3) return null;
+        lines = lines.map(cleanLine).filter(Boolean);
         var name = "";
         var age = "";
         var graduateYear = "";
         var degree = "";
         var status = "";
-        var headerTokens = lines[0].split(" ").filter(Boolean);
-        if (headerTokens.length > 0) name = headerTokens[0];
-        for (var i = 1; i < headerTokens.length; i++) {
-          var token = headerTokens[i];
-          if (/^\d{2}岁$/.test(token)) age = token;
-          else if (/^\d{2}年应届生$/.test(token)) graduateYear = token;
-          else if (/^(中专|大专|本科|硕士|博士)$/.test(token)) degree = token;
-          else status += (status ? " " : "") + token;
-        }
-        if (!name || name.length > 20) return null;
-
         var salary = "";
         var location = "";
         var intent = "";
@@ -439,6 +446,7 @@
         var major = "";
         var infoLine = "";
         var eduLine = "";
+        var headerLine = "";
         var infoLineIndex = -1;
         var eduLineIndex = -1;
 
@@ -469,7 +477,10 @@
         }
 
         for (var li = 0; li < lines.length; li++) {
-          if (/^\d+-\d+K$/.test(lines[li]) || /^面议$/.test(lines[li])) salary = lines[li];
+          if (!headerLine && /\d{2}岁/.test(lines[li])) {
+            headerLine = lines[li];
+          }
+          if (isSalaryLike(lines[li])) salary = lines[li];
           if (infoLineIndex < 0 && (lines[li].indexOf("最近关注") === 0 || lines[li].indexOf("期望") === 0)) {
             infoLine = lines[li];
             infoLineIndex = li;
@@ -480,12 +491,19 @@
           }
         }
 
-        if (!infoLine && lines.length >= 2) {
-          infoLine = lines[1];
+        if (!headerLine || !infoLine || !eduLine) return null;
+
+        var headerTokens = headerLine.split(" ").filter(Boolean);
+        if (headerTokens.length > 0) name = headerTokens[0];
+        for (var i = 1; i < headerTokens.length; i++) {
+          var token = headerTokens[i];
+          if (/^\d{2}岁$/.test(token)) age = token;
+          else if (/^\d{2}年应届生$/.test(token)) graduateYear = token;
+          else if (/^(中专|大专|本科|硕士|博士)$/.test(token)) degree = token;
+          else status += (status ? " " : "") + token;
         }
-        if (!eduLine && lines.length >= 3) {
-          eduLine = lines[2];
-        }
+        if (!name || name.length > 20 || isBadRecommendName(name)) return null;
+        if (!age) return null;
 
         if (infoLine) {
           var line2 = sanitizeDataLine(infoLine.replace(/^最近关注|^期望/, "").trim());
@@ -497,6 +515,8 @@
             location = parts2[0];
           }
         }
+
+        if (!location && !intent) return null;
 
         if (eduLine) {
           var line3 = sanitizeDataLine(eduLine.replace(/^学历/, "").trim());
@@ -518,6 +538,8 @@
           }
         }
 
+        if (!school) return null;
+        if (!degree && !graduateYear) return null;
         if (!intent) intent = "未标注意向";
         if (!salary) {
           for (var si = 0; si < lines.length; si++) {
@@ -662,17 +684,8 @@
           if (!infoLine && /^(\u671f\u671b|\u6700\u8fd1\u5173\u6ce8)/.test(filtered[fj])) infoLine = filtered[fj];
           if (!eduLine && /^学历/.test(filtered[fj])) eduLine = filtered[fj];
         }
-        var candidateLines = [];
-        if (headerLine) candidateLines.push(headerLine);
-        if (infoLine) candidateLines.push(infoLine);
-        if (eduLine) candidateLines.push(eduLine);
-        if (candidateLines.length < 3) {
-          for (var fk = 0; fk < filtered.length; fk++) {
-            if (candidateLines.indexOf(filtered[fk]) < 0) candidateLines.push(filtered[fk]);
-            if (candidateLines.length >= 3) break;
-          }
-        }
-        var candidate = buildCandidateFromLines(candidateLines.slice(0, 4), bi + 1, rect);
+        if (!headerLine || !infoLine || !eduLine) continue;
+        var candidate = buildCandidateFromLines([headerLine, infoLine, eduLine], bi + 1, rect);
         if (candidate) resultItems.push(candidate);
       }
       return resultItems;
@@ -739,21 +752,6 @@
     }
 
     if (result.candidates.length === 0) {
-      var bandCandidates = extractCandidatesByButtonBands();
-      for (var ci = 0; ci < bandCandidates.length; ci++) {
-        var item = bandCandidates[ci];
-        if (!item || seen[item.name + "|" + item.intent]) continue;
-        seen[item.name + "|" + item.intent] = true;
-        result.candidates.push(item);
-        if (!result.groups[item.intent]) result.groups[item.intent] = [];
-        result.groups[item.intent].push(item);
-      }
-      if (bandCandidates.length > 0) {
-        result.debug = "recommend_scan_bands:" + bandCandidates.length + "|docs:" + docs.length + "|roots:" + roots.length;
-      }
-    }
-
-    if (result.candidates.length === 0) {
       var textCandidates = extractCandidatesFromFullText();
       for (var ti = 0; ti < textCandidates.length; ti++) {
         var textItem = textCandidates[ti];
@@ -765,6 +763,21 @@
       }
       if (textCandidates.length > 0) {
         result.debug = "recommend_scan_text:" + textCandidates.length + "|docs:" + docs.length + "|roots:" + roots.length;
+      }
+    }
+
+    if (result.candidates.length === 0) {
+      var bandCandidates = extractCandidatesByButtonBands();
+      for (var ci = 0; ci < bandCandidates.length; ci++) {
+        var item = bandCandidates[ci];
+        if (!item || seen[item.name + "|" + item.intent]) continue;
+        seen[item.name + "|" + item.intent] = true;
+        result.candidates.push(item);
+        if (!result.groups[item.intent]) result.groups[item.intent] = [];
+        result.groups[item.intent].push(item);
+      }
+      if (bandCandidates.length > 0) {
+        result.debug = "recommend_scan_bands:" + bandCandidates.length + "|docs:" + docs.length + "|roots:" + roots.length;
       }
     }
 

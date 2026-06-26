@@ -207,6 +207,16 @@ class Bot:
         if not items:
             print("  (空)")
 
+    def print_recommend_name_list(self, items, title):
+        print()
+        print("  " + "=" * 45)
+        print("  " + title + " " + str(len(items)) + " 人")
+        print("  " + "=" * 45)
+        for i, c in enumerate(items, 1):
+            print("    " + str(i).rjust(2) + ". " + c.get("name", "?"))
+        if not items:
+            print("  (空)")
+
     def print_recommend_groups(self):
         print()
         print("  " + "=" * 45)
@@ -314,13 +324,7 @@ class Bot:
                         continue
                     self.recommend_candidates = d.get("candidates", [])
                     self.recommend_groups = d.get("groups", {})
-                    print()
-                    print("  " + "=" * 45)
-                    print("  推荐牛人扫描到 " + str(len(self.recommend_candidates)) + " 人")
-                    print("  " + "=" * 45)
-                    self.print_recommend_groups()
-                    for intent, items in sorted(self.recommend_groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:3]:
-                        self.print_recommend_candidate_list(items[:5], "示例 " + intent)
+                    self.print_recommend_name_list(self.recommend_candidates, "推荐牛人扫描到")
                 elif t == "chat_content":
                     txt = d.get("full_text", "")[:200]
                     if txt:
