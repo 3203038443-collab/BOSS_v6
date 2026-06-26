@@ -959,6 +959,53 @@
     return best || {candidates: [], groups: {}, page_url: location.href, page_title: document.title, debug: "recommend_scan_empty"};
   }
 
+  function normalizeRecommendMatchText(value) {
+    return (value || "").replace(/\s+/g, "").trim();
+  }
+
+  function containsRecommendCandidateName(textValue, candidateName) {
+    var normalizedText = normalizeRecommendMatchText(textValue);
+    var normalizedName = normalizeRecommendMatchText(candidateName);
+    if (!normalizedText || !normalizedName) return false;
+    return normalizedText.indexOf(normalizedName) >= 0;
+  }
+
+  function scoreRecommendCardMeta(meta, anchorX, anchorY) {
+    if (!meta) return 999999;
+    var top = Number(meta.top) || 0;
+    var left = Number(meta.left) || 0;
+    var width = Math.max(0, Number(meta.width) || 0);
+    var height = Math.max(0, Number(meta.height) || 0);
+    var area = width * height;
+    var centerY = top + height / 2;
+    var centerX = left + width / 2;
+    var score = 0;
+    score += anchorY ? Math.abs(centerY - anchorY) * 4 : top;
+    score += anchorX ? Math.abs(centerX - anchorX) : 0;
+    score += Math.min(area, 320000) / 260;
+    if (!meta.hasDirectGreetButton) score += 60000;
+    if (meta.text && meta.text.indexOf("继续沟通") >= 0 && meta.text.indexOf("打招呼") < 0) score += 22000;
+    if (meta.text && meta.text.indexOf("已沟通") >= 0 && meta.text.indexOf("打招呼") < 0) score += 26000;
+    score -= Math.min(Number(meta.depth) || 0, 8) * 120;
+    return score;
+  }
+
+  function sortRecommendCardMetas(cardMetas, candidateName, anchorX, anchorY) {
+    return (cardMetas || []).filter(function(meta) {
+      if (!meta) return false;
+      if (!containsRecommendCandidateName(meta.text || "", candidateName)) return false;
+      if (!meta.hasRecommendAction) return false;
+      return true;
+    }).sort(function(a, b) {
+      var scoreDiff = scoreRecommendCardMeta(a, anchorX, anchorY) - scoreRecommendCardMeta(b, anchorX, anchorY);
+      if (Math.abs(scoreDiff) > 0.5) return scoreDiff;
+      var areaA = Math.max(0, Number(a.width) || 0) * Math.max(0, Number(a.height) || 0);
+      var areaB = Math.max(0, Number(b.width) || 0) * Math.max(0, Number(b.height) || 0);
+      if (Math.abs(areaA - areaB) > 1) return areaA - areaB;
+      return (Number(b.depth) || 0) - (Number(a.depth) || 0);
+    });
+  }
+
   async function greetRecommendTalent(name, text, anchorX, anchorY) {
     console.log("[CT] greetRecommendTalent:", name, anchorX, anchorY);
     function clickLikeUser(el) {
@@ -968,38 +1015,88 @@
       try { el.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, button: 0})); } catch (e) {}
       try { el.click(); } catch (e) {}
     }
-    function isRecommendButtonText(value) {
-      var t = (value || "").trim();
-      return t === "打招呼" || t === "继续沟通";
-    }
     function isVisible(el) {
       if (!el) return false;
       var rect = el.getBoundingClientRect();
       return rect.width > 10 && rect.height > 10 && rect.bottom > 0 && rect.top < window.innerHeight + 20;
     }
-    function scoreCard(card) {
-      if (!card || !isVisible(card)) return -999999;
+    function getRect(el) {
+      try {
+        return el.getBoundingClientRect();
+      } catch (e) {
+        return {left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0};
+      }
+    }
+    function cardHasDirectGreetButton(card) {
+      var buttons = Array.from(card.querySelectorAll("button, a, span, div")).filter(function(el) {
+        if (!isVisible(el)) return false;
+        var textValue = (el.innerText || el.textContent || "").trim();
+        return textValue === "打招呼";
+      });
+      return buttons.length > 0;
+    }
+    function cardHasRecommendAction(card) {
+      if (!card || !isVisible(card)) return false;
       var textValue = (card.innerText || "").trim();
-      if (textValue.indexOf(name) < 0) return -999999;
-      var rect = card.getBoundingClientRect();
-      var score = 0;
-      if (textValue.indexOf("打招呼") >= 0 || textValue.indexOf("继续沟通") >= 0) score += 120;
-      if (anchorY) score -= Math.abs((rect.top + rect.height / 2) - anchorY);
-      if (anchorX) score -= Math.abs(rect.left - Math.min(anchorX, rect.right));
-      score += Math.min(rect.width, 1200) / 20;
-      score += Math.min(rect.height, 400) / 10;
-      return score;
+      if (!textValue) return false;
+      return textValue.indexOf("打招呼") >= 0 || textValue.indexOf("继续沟通") >= 0 || textValue.indexOf("已沟通") >= 0;
+    }
+    function buildCardMeta(card, depth) {
+      var rect = getRect(card);
+      return {
+        card: card,
+        depth: depth || 0,
+        text: (card.innerText || "").trim(),
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        hasDirectGreetButton: cardHasDirectGreetButton(card),
+        hasRecommendAction: cardHasRecommendAction(card)
+      };
     }
     function findCandidateCards() {
-      var allCards = Array.from(document.querySelectorAll("li, div, section, article"));
-      return allCards.filter(function(card) {
-        if (!isVisible(card)) return false;
-        var textValue = (card.innerText || "").trim();
-        if (textValue.indexOf(name) < 0) return false;
-        return textValue.indexOf("打招呼") >= 0 || textValue.indexOf("继续沟通") >= 0;
-      }).sort(function(a, b) {
-        return scoreCard(b) - scoreCard(a);
-      }).slice(0, 5);
+      var seen = [];
+      var metas = [];
+      var nameHits = Array.from(document.querySelectorAll("div, span, p, strong, em, b, a, li, section, article")).filter(function(el) {
+        if (!isVisible(el)) return false;
+        var textValue = (el.innerText || el.textContent || "").trim();
+        return containsRecommendCandidateName(textValue, name);
+      });
+      for (var hi = 0; hi < nameHits.length; hi++) {
+        var current = nameHits[hi];
+        var depth = 0;
+        while (current && current !== document.body && depth < 8) {
+          if (current.nodeType !== 1) {
+            current = current.parentElement;
+            depth++;
+            continue;
+          }
+          var rect = getRect(current);
+          if (isVisible(current) && rect.width > 220 && rect.height > 72 && cardHasRecommendAction(current)) {
+            if (seen.indexOf(current) < 0) {
+              seen.push(current);
+              metas.push(buildCardMeta(current, depth));
+            }
+          }
+          current = current.parentElement;
+          depth++;
+        }
+      }
+      if (metas.length === 0) {
+        var allCards = Array.from(document.querySelectorAll("li, div, section, article"));
+        for (var ci = 0; ci < allCards.length; ci++) {
+          var card = allCards[ci];
+          if (!isVisible(card)) continue;
+          var textValue = (card.innerText || "").trim();
+          if (!containsRecommendCandidateName(textValue, name)) continue;
+          if (!cardHasRecommendAction(card)) continue;
+          metas.push(buildCardMeta(card, 0));
+        }
+      }
+      return sortRecommendCardMetas(metas, name, anchorX, anchorY).map(function(meta) {
+        return meta.card;
+      }).slice(0, 8);
     }
     function findButtonInCard(card) {
       if (!card) return null;
@@ -1021,17 +1118,24 @@
       });
       return buttons[0];
     }
-    function buttonTurnedToContinue(card, originalBtn) {
+    function buttonTurnedToSuccess(card, originalBtn) {
       var btnText = (originalBtn && (originalBtn.innerText || originalBtn.textContent || "").trim()) || "";
       var cardText = (card && (card.innerText || "").trim()) || "";
-      if (btnText === "继续沟通") return true;
-      if (cardText.indexOf("继续沟通") >= 0) return true;
+      if (btnText === "继续沟通" || btnText === "已沟通") return true;
+      if (cardText.indexOf("继续沟通") >= 0 || cardText.indexOf("已沟通") >= 0) return true;
       var followButtons = Array.from((card || document).querySelectorAll("button, a, span, div")).filter(function(el) {
         if (!isVisible(el)) return false;
         var textValue = (el.innerText || el.textContent || "").trim();
-        return textValue === "继续沟通";
+        return textValue === "继续沟通" || textValue === "已沟通";
       });
       return followButtons.length > 0;
+    }
+    async function waitForGreetResult(card, originalBtn) {
+      for (var i = 0; i < 14; i++) {
+        if (buttonTurnedToSuccess(card, originalBtn)) return "sent";
+        await sleep(250);
+      }
+      return "error:clicked_no_state_change";
     }
     function findNearestButtonByAnchor() {
       var buttons = Array.from(document.querySelectorAll("button, a, span, div")).filter(function(el) {
@@ -1057,27 +1161,30 @@
     }
 
     var cards = findCandidateCards();
+    var sawButtonCandidate = false;
     for (var ci = 0; ci < cards.length; ci++) {
       var card = cards[ci];
       var btn = findButtonInCard(card);
       if (!btn) continue;
+      sawButtonCandidate = true;
+      try { btn.scrollIntoView({block: "center", inline: "center"}); } catch (e) {}
       clickLikeUser(btn);
-      await sleep(1500 + rand(300, 900));
-      if (buttonTurnedToContinue(card, btn)) {
-        return true;
-      }
+      var clickResult = await waitForGreetResult(card, btn);
+      if (clickResult === "sent") return "sent";
     }
 
     var fallbackBtn = findNearestButtonByAnchor();
     if (fallbackBtn) {
       var fallbackCard = fallbackBtn.closest("li, div, section, article") || fallbackBtn.parentElement;
+      try { fallbackBtn.scrollIntoView({block: "center", inline: "center"}); } catch (e) {}
       clickLikeUser(fallbackBtn);
-      await sleep(1500 + rand(300, 900));
-      if (buttonTurnedToContinue(fallbackCard, fallbackBtn)) {
-        return true;
-      }
+      var fallbackResult = await waitForGreetResult(fallbackCard, fallbackBtn);
+      if (fallbackResult === "sent") return "sent";
+      return "error:anchor_clicked_no_state_change";
     }
-    return false;
+    if (cards.length === 0) return "error:no_card_match";
+    if (!sawButtonCandidate) return "error:no_button_in_card";
+    return "error:clicked_no_state_change";
   }
 
   async function navigatePage(url) {
@@ -1694,7 +1801,7 @@ function scanDetail() {
         sendMsg(msg.params.text).then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "send_error:" + (e.message || e), meta: frameMeta()}); });
         return true;
       case "greet_recommend_candidate":
-        greetRecommendTalent(msg.params.name, msg.params.text || "", msg.params.x || 0, msg.params.y || 0).then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "greet_error:" + (e.message || e), meta: frameMeta()}); });
+        greetRecommendTalent(msg.params.name, msg.params.text || "", msg.params.x || 0, msg.params.y || 0).then(function(status) { sendResponse({type: "status", data: status || "error:failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "greet_error:" + (e.message || e), meta: frameMeta()}); });
         return true;
       case "navigate_page":
         navigatePage(msg.params.url).then(function(ok) { sendResponse({type: "status", data: ok ? "navigating" : "error:navigate_failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "navigate_error:" + (e.message || e), meta: frameMeta()}); });
@@ -1754,7 +1861,7 @@ function scanDetail() {
           } else if (msg.cmd === "send_message" && msg.params && msg.params.text) {
             sendMsg(msg.params.text).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()})); });
           } else if (msg.cmd === "greet_recommend_candidate" && msg.params && msg.params.name) {
-            greetRecommendTalent(msg.params.name, msg.params.text || "", msg.params.x || 0, msg.params.y || 0).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "greet_error:" + (e.message || e), meta: frameMeta()})); });
+            greetRecommendTalent(msg.params.name, msg.params.text || "", msg.params.x || 0, msg.params.y || 0).then(function(status) { cws.send(JSON.stringify({type: "status", data: status || "error:failed", meta: frameMeta()})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "greet_error:" + (e.message || e), meta: frameMeta()})); });
           } else if (msg.cmd === "navigate_page" && msg.params && msg.params.url) {
             navigatePage(msg.params.url).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "navigating" : "error:navigate_failed", meta: frameMeta()})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "navigate_error:" + (e.message || e), meta: frameMeta()})); });
           } else if (msg.cmd === "read_chat") {
