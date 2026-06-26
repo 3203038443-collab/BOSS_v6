@@ -163,8 +163,8 @@ class Bot:
             print("  (空)")
 
     async def ensure_recommend_candidates(self):
-        if self.recommend_candidates:
-            return True
+        self.recommend_candidates = []
+        self.recommend_groups = {}
         await self.wait_for_page_ready(RECOMMEND_URL, timeout_seconds=20, min_body_len=500, need_recommend_signals=True)
         await self.cmd("scan_recommend_candidates")
         for _ in range(6):
@@ -401,6 +401,8 @@ class Bot:
                 sc = (await self.async_input("  选择: ")).strip()
                 if sc == "2":
                     print("  切换到推荐牛人页面...")
+                    self.recommend_candidates = []
+                    self.recommend_groups = {}
                     ok_nav = await self.navigate_and_wait(RECOMMEND_URL)
                     if not ok_nav:
                         print("  [!] 未成功切换到推荐牛人页面")

@@ -338,44 +338,87 @@
         var intent = "";
         var school = "";
         var major = "";
+        var infoLine = "";
+        var eduLine = "";
+        var infoLineIndex = -1;
+        var eduLineIndex = -1;
 
-        function splitParts(line) {
+        function sanitizeDataLine(line) {
           return cleanLine(line)
-            .replace(/[·•|｜\/\\]+/g, " ")
+            .replace(/打招呼|立即沟通|继续沟通|感兴趣|收藏|在线|活跃|刚刚活跃/g, " ")
+            .replace(/(\d+-\d+K|面议|\d+薪)/g, " ")
             .replace(/\s+/g, " ")
-            .trim()
-            .split(" ")
-            .map(cleanLine)
-            .filter(Boolean);
+            .trim();
+        }
+
+        function splitByDivider(line) {
+          var normalized = sanitizeDataLine(line);
+          if (!normalized) return [];
+          if (/[·•|｜]/.test(normalized)) {
+            return normalized.split(/[·•|｜]+/).map(cleanLine).filter(Boolean);
+          }
+          return normalized.split(/\s+/).map(cleanLine).filter(Boolean);
+        }
+
+        function pickDegree(parts) {
+          for (var pi = parts.length - 1; pi >= 0; pi--) {
+            if (/^(中专|大专|本科|硕士|博士|MBA|EMBA)$/.test(parts[pi])) {
+              return { value: parts[pi], index: pi };
+            }
+          }
+          return null;
         }
 
         for (var li = 0; li < lines.length; li++) {
           if (/^\d+-\d+K$/.test(lines[li]) || /^面议$/.test(lines[li])) salary = lines[li];
-          if (lines[li].indexOf("最近关注") === 0 || lines[li].indexOf("期望") === 0) {
-            var line2 = lines[li].replace(/^最近关注|^期望/, "").trim();
-            var parts2 = splitParts(line2);
-            if (parts2.length > 1) {
-              location = parts2[0];
-              intent = parts2.slice(1).join(" ");
-            } else if (parts2.length === 1) {
-              location = parts2[0];
-            }
+          if (infoLineIndex < 0 && (lines[li].indexOf("最近关注") === 0 || lines[li].indexOf("期望") === 0)) {
+            infoLine = lines[li];
+            infoLineIndex = li;
           }
-          if (lines[li].indexOf("学历") === 0) {
-            var line3 = lines[li].replace(/^学历/, "").trim();
-            var parts3 = splitParts(line3);
-            if (parts3.length >= 3) {
-              school = parts3[0];
-              major = parts3.slice(1, -1).join(" ");
-              degree = parts3[parts3.length - 1];
-            } else if (parts3.length === 2) {
-              school = parts3[0];
-              degree = parts3[1];
-            } else if (parts3.length === 1) {
-              school = parts3[0];
-            }
+          if (eduLineIndex < 0 && lines[li].indexOf("学历") === 0) {
+            eduLine = lines[li];
+            eduLineIndex = li;
           }
         }
+
+        if (!infoLine && lines.length >= 2) {
+          infoLine = lines[1];
+        }
+        if (!eduLine && lines.length >= 3) {
+          eduLine = lines[2];
+        }
+
+        if (infoLine) {
+          var line2 = sanitizeDataLine(infoLine.replace(/^最近关注|^期望/, "").trim());
+          var parts2 = splitByDivider(line2);
+          if (parts2.length >= 2) {
+            location = parts2[0];
+            intent = parts2.slice(1).join(" ");
+          } else if (parts2.length === 1) {
+            location = parts2[0];
+          }
+        }
+
+        if (eduLine) {
+          var line3 = sanitizeDataLine(eduLine.replace(/^学历/, "").trim());
+          var parts3 = splitByDivider(line3);
+          var degreeHit = pickDegree(parts3);
+          if (parts3.length >= 1) {
+            school = parts3[0];
+          }
+          if (degreeHit) {
+            degree = degreeHit.value;
+            if (degreeHit.index > 1) {
+              major = parts3.slice(1, degreeHit.index).join(" ");
+            }
+          } else if (parts3.length >= 3) {
+            major = parts3.slice(1, -1).join(" ");
+            degree = parts3[parts3.length - 1];
+          } else if (parts3.length === 2) {
+            degree = parts3[1];
+          }
+        }
+
         if (!intent) intent = "未标注意向";
         if (!salary) {
           for (var si = 0; si < lines.length; si++) {
