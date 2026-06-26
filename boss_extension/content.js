@@ -961,12 +961,24 @@
 
   async function greetRecommendTalent(name, text) {
     console.log("[CT] greetRecommendTalent:", name);
+    function clickLikeUser(el) {
+      try { el.dispatchEvent(new MouseEvent("mouseover", {bubbles: true})); } catch (e) {}
+      try { el.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, cancelable: true, button: 0})); } catch (e) {}
+      try { el.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, cancelable: true, button: 0})); } catch (e) {}
+      try { el.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, button: 0})); } catch (e) {}
+      try { el.click(); } catch (e) {}
+    }
+    function isRecommendButtonText(value) {
+      var t = (value || "").trim();
+      return t === "打招呼" || t === "继续沟通";
+    }
     var buttons = Array.from(document.querySelectorAll("button, a, span, div")).filter(function(el) {
-      var t = (el.innerText || el.textContent || "").trim();
-      return t === "打招呼";
+      return isRecommendButtonText(el.innerText || el.textContent || "");
     });
     for (var bi = 0; bi < buttons.length; bi++) {
       var btn = buttons[bi];
+      var originalText = (btn.innerText || btn.textContent || "").trim();
+      if (originalText !== "打招呼") continue;
       var card = btn.closest("li, [class*=card], [class*=item], [class*=list-item], [class*=row]") || btn.parentElement;
       var depth = 0;
       while (card && depth < 6) {
@@ -978,18 +990,26 @@
       if (!card) continue;
       var cardText = (card.innerText || "").trim();
       if (cardText.indexOf(name) < 0) continue;
-      try {
-        btn.click();
-      } catch (e) {
-        try {
-          btn.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, button: 0}));
-        } catch (ex) {}
+      clickLikeUser(btn);
+      await sleep(1500 + rand(300, 900));
+      var latestCardText = (card.innerText || "").trim();
+      var latestBtnText = (btn.innerText || btn.textContent || "").trim();
+      if (latestCardText.indexOf("继续沟通") >= 0 || latestBtnText === "继续沟通") {
+        return true;
       }
-      await sleep(1200 + rand(300, 800));
-      if (text) {
-        return await sendMsg(text);
+      var refreshedButtons = Array.from(card.querySelectorAll("button, a, span, div")).filter(function(el) {
+        return isRecommendButtonText(el.innerText || el.textContent || "");
+      });
+      for (var ri = 0; ri < refreshedButtons.length; ri++) {
+        var refreshedText = (refreshedButtons[ri].innerText || refreshedButtons[ri].textContent || "").trim();
+        if (refreshedText === "继续沟通") {
+          return true;
+        }
       }
-      return true;
+      if (!text) {
+        return false;
+      }
+      return false;
     }
     return false;
   }

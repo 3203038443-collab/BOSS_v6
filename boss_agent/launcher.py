@@ -413,6 +413,15 @@ class Bot:
     def can_enter_recommend_filter(self):
         return self.page_matches(RECOMMEND_URL, need_recommend_signals=True)
 
+    def resolve_recommend_send_payload(self, choice, custom_text=""):
+        if choice == "1":
+            return {"mode": "platform_greet", "text": ""}
+        if choice == "2":
+            custom_text = str(custom_text or "").strip()
+            if custom_text:
+                return {"mode": "custom_text", "text": custom_text}
+        return None
+
     async def navigate_and_wait(self, url, wait_seconds=6):
         self.connected = False
         self.page_title = ""
@@ -884,21 +893,13 @@ class Bot:
                 if not target_items:
                     print("  [i] 当前推荐名单为空，请先重新扫描或切换到有内容的推荐页")
                     continue
-                print("  1.模板消息  2.自定义消息")
+                print("  1.仅点击打招呼(平台默认话术)  2.自定义消息")
                 send_mode = (await self.async_input("  选择: ")).strip()
-                text = ""
-                if send_mode == "1":
-                    for k, v in TEMPLATES.items():
-                        print("  " + k + ". " + v[:40] + "...")
-                    tk = (await self.async_input("  模板: ")).strip()
-                    if tk not in TEMPLATES:
-                        continue
-                    text = TEMPLATES[tk]
-                elif send_mode == "2":
-                    text = (await self.async_input("  内容: ")).strip()
-                    if not text:
-                        continue
-                else:
+                custom_text = ""
+                if send_mode == "2":
+                    custom_text = (await self.async_input("  内容: ")).strip()
+                payload = self.resolve_recommend_send_payload(send_mode, custom_text)
+                if not payload:
                     continue
                 ok = (await self.async_input("  确认? (y/n): ")).strip().lower()
                 if ok != "y":
@@ -913,7 +914,7 @@ class Bot:
                     if not name or name in sent_names:
                         continue
                     print('  [' + str(i+1) + '/' + str(total) + '] ' + name + ' - ' + ca.get("intent", ""))
-                    await self.cmd("greet_recommend_candidate", {"name": name, "text": text})
+                    await self.cmd("greet_recommend_candidate", {"name": name, "text": payload.get("text", "")})
                     await asyncio.sleep(self.rand_delay())
                     sent_names.add(name)
                     sent += 1
