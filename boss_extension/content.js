@@ -4,6 +4,42 @@
   function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
   function rand(a, b) { return Math.random() * (b - a) + a; }
 
+  function collectAccessibleDocuments(rootDoc) {
+    var docs = [];
+    var seen = [];
+
+    function visit(doc) {
+      if (!doc || seen.indexOf(doc) >= 0) return;
+      seen.push(doc);
+      docs.push(doc);
+      var frames = [];
+      try {
+        frames = doc.querySelectorAll("iframe, frame");
+      } catch (e) {}
+      for (var i = 0; i < frames.length; i++) {
+        try {
+          if (frames[i].contentDocument) {
+            visit(frames[i].contentDocument);
+          }
+        } catch (e) {}
+      }
+    }
+
+    visit(rootDoc || document);
+    return docs;
+  }
+
+  function queryAllDocuments(docs, selector) {
+    var list = [];
+    for (var i = 0; i < docs.length; i++) {
+      try {
+        var nodes = docs[i].querySelectorAll(selector);
+        for (var j = 0; j < nodes.length; j++) list.push(nodes[j]);
+      } catch (e) {}
+    }
+    return list;
+  }
+
   // ===== 扫描候选人 (多层策略) =====
   function scanAll() {
     var result = {candidates: [], page_url: location.href, page_title: document.title, debug: ""};
@@ -234,6 +270,7 @@
   function scanRecommendTalents() {
     var result = {candidates: [], groups: {}, page_url: location.href, page_title: document.title, debug: "recommend_scan"};
     var seen = {};
+    var docs = collectAccessibleDocuments(document);
 
     function cleanLine(text) {
       return (text || "").replace(/\s+/g, " ").trim();
@@ -283,7 +320,7 @@
     function collectCards() {
       var cards = [];
       var nodeSet = {};
-      var buttons = Array.from(document.querySelectorAll("button, a, span, div, li, article, section")).filter(function(el) {
+      var buttons = Array.from(queryAllDocuments(docs, "button, a, span, div, li, article, section")).filter(function(el) {
         var t = cleanLine(el.innerText || el.textContent || "");
         if (!t) return false;
         return t.indexOf("打招呼") >= 0 || hasRecommendSignal(t);
@@ -296,7 +333,7 @@
       }
       if (cards.length > 0) return cards;
 
-      var all = document.querySelectorAll("div, li, section, article");
+      var all = queryAllDocuments(docs, "div, li, section, article");
       for (var ai = 0; ai < all.length; ai++) {
         var el = all[ai];
         var r = el.getBoundingClientRect();
@@ -308,6 +345,23 @@
         cards.push(el);
       }
       return cards;
+    }
+
+    function normalizeCards(cards) {
+      return cards.filter(function(card) {
+        if (!card) return false;
+        try {
+          var r = card.getBoundingClientRect();
+          return r.width >= 220 && r.height >= 80 && r.bottom > 0 && r.top < window.innerHeight + 200;
+        } catch (e) {
+          return false;
+        }
+      }).sort(function(a, b) {
+        var ar = a.getBoundingClientRect();
+        var br = b.getBoundingClientRect();
+        if (Math.abs(ar.top - br.top) > 8) return ar.top - br.top;
+        return ar.left - br.left;
+      }).slice(0, 10);
     }
 
     function parseCandidate(card, idx) {
@@ -449,7 +503,7 @@
       }
     }
 
-    var cardCandidates = collectCards();
+    var cardCandidates = normalizeCards(collectCards());
 
     for (var bi = 0; bi < cardCandidates.length; bi++) {
       var card = cardCandidates[bi];
@@ -461,7 +515,7 @@
       result.groups[candidate.intent].push(candidate);
     }
 
-    result.debug = "recommend_scan_cards:" + cardCandidates.length;
+    result.debug = "recommend_scan_docs:" + docs.length + "|cards:" + cardCandidates.length;
     console.log("[CT] scanRecommendTalents:", result.candidates.length, "candidates", result.debug);
     return result;
   }
@@ -1081,19 +1135,30 @@
   }
 
 function scanDetail() {
-    var result = {url: location.href, title: document.title, viewport: window.innerWidth+"x"+window.innerHeight, bodyLength: (document.body.innerText||"").length, elements: [], inputs: [], allText: []};
-    // 收集所有可见文本
-    var textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-    var txtNode;
-    while (txtNode = textWalker.nextNode()) {
-      var t = (txtNode.textContent || "").trim();
-      if (t.length > 0) {
-        var r = txtNode.parentElement.getBoundingClientRect();
-        result.allText.push({text: t.slice(0,60), x: Math.round(r.left), y: Math.round(r.top), tag: txtNode.parentElement.tagName});
-      }
+    var docs = collectAccessibleDocuments(document);
+    var totalBodyLength = 0;
+    for (var di = 0; di < docs.length; di++) {
+      try {
+        totalBodyLength += ((docs[di].body && docs[di].body.innerText) || "").length;
+      } catch (e) {}
     }
-    result = {url: location.href, title: document.title, viewport: window.innerWidth+"x"+window.innerHeight, bodyLength: (document.body.innerText||"").length, elements: [], inputs: []};
-    var allEls = document.querySelectorAll("div, li, a, button, span, textarea, [contenteditable]");
+    var result = {url: location.href, title: document.title, viewport: window.innerWidth+"x"+window.innerHeight, bodyLength: totalBodyLength, docCount: docs.length, elements: [], inputs: [], allText: []};
+    // 收集所有可见文本
+    for (var ti = 0; ti < docs.length; ti++) {
+      try {
+        var textWalker = docs[ti].createTreeWalker(docs[ti].body, NodeFilter.SHOW_TEXT, null, false);
+        var txtNode;
+        while (txtNode = textWalker.nextNode()) {
+          var t = (txtNode.textContent || "").trim();
+          if (t.length > 0) {
+            var r = txtNode.parentElement.getBoundingClientRect();
+            result.allText.push({text: t.slice(0,60), x: Math.round(r.left), y: Math.round(r.top), tag: txtNode.parentElement.tagName});
+          }
+        }
+      } catch (e) {}
+    }
+    result = {url: location.href, title: document.title, viewport: window.innerWidth+"x"+window.innerHeight, bodyLength: totalBodyLength, docCount: docs.length, elements: [], inputs: []};
+    var allEls = queryAllDocuments(docs, "div, li, a, button, span, textarea, [contenteditable]");
     var count = 0;
     for (var i = 0; i < allEls.length && count < 60; i++) {
       var r = allEls[i].getBoundingClientRect();
@@ -1103,7 +1168,7 @@ function scanDetail() {
         count++;
       }
     }
-    document.querySelectorAll("textarea, [contenteditable], input[type=text]").forEach(function(el) {
+    queryAllDocuments(docs, "textarea, [contenteditable], input[type=text]").forEach(function(el) {
       var r = el.getBoundingClientRect();
       if (r.width > 0 && r.height > 0) result.inputs.push({tag: el.tagName, editable: el.isContentEditable, placeholder: (el.placeholder || el.getAttribute("aria-label") || ""), x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height)});
     });
