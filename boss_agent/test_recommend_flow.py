@@ -26,6 +26,15 @@ class RecommendFlowTest(unittest.TestCase):
         payload = bot.resolve_recommend_send_payload("2", custom_text="hello")
         self.assertEqual(payload, {"mode": "custom_text", "text": "hello"})
 
+    def test_recommend_greet_command_includes_anchor_position(self):
+        bot = Bot()
+        candidate = {"name": "alice", "x": 720, "y": 260}
+        payload = bot.build_recommend_greet_command(candidate, {"mode": "platform_greet", "text": ""})
+        self.assertEqual(
+            payload,
+            {"name": "alice", "text": "", "x": 720, "y": 260},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

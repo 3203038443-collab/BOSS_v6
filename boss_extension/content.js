@@ -959,8 +959,8 @@
     return best || {candidates: [], groups: {}, page_url: location.href, page_title: document.title, debug: "recommend_scan_empty"};
   }
 
-  async function greetRecommendTalent(name, text) {
-    console.log("[CT] greetRecommendTalent:", name);
+  async function greetRecommendTalent(name, text, anchorX, anchorY) {
+    console.log("[CT] greetRecommendTalent:", name, anchorX, anchorY);
     function clickLikeUser(el) {
       try { el.dispatchEvent(new MouseEvent("mouseover", {bubbles: true})); } catch (e) {}
       try { el.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, cancelable: true, button: 0})); } catch (e) {}
@@ -972,44 +972,110 @@
       var t = (value || "").trim();
       return t === "打招呼" || t === "继续沟通";
     }
-    var buttons = Array.from(document.querySelectorAll("button, a, span, div")).filter(function(el) {
-      return isRecommendButtonText(el.innerText || el.textContent || "");
-    });
-    for (var bi = 0; bi < buttons.length; bi++) {
-      var btn = buttons[bi];
-      var originalText = (btn.innerText || btn.textContent || "").trim();
-      if (originalText !== "打招呼") continue;
-      var card = btn.closest("li, [class*=card], [class*=item], [class*=list-item], [class*=row]") || btn.parentElement;
-      var depth = 0;
-      while (card && depth < 6) {
-        var t = (card.innerText || "").trim();
-        if (t.indexOf(name) >= 0 && t.indexOf("打招呼") >= 0) break;
-        card = card.parentElement;
-        depth++;
-      }
-      if (!card) continue;
-      var cardText = (card.innerText || "").trim();
-      if (cardText.indexOf(name) < 0) continue;
+    function isVisible(el) {
+      if (!el) return false;
+      var rect = el.getBoundingClientRect();
+      return rect.width > 10 && rect.height > 10 && rect.bottom > 0 && rect.top < window.innerHeight + 20;
+    }
+    function scoreCard(card) {
+      if (!card || !isVisible(card)) return -999999;
+      var textValue = (card.innerText || "").trim();
+      if (textValue.indexOf(name) < 0) return -999999;
+      var rect = card.getBoundingClientRect();
+      var score = 0;
+      if (textValue.indexOf("打招呼") >= 0 || textValue.indexOf("继续沟通") >= 0) score += 120;
+      if (anchorY) score -= Math.abs((rect.top + rect.height / 2) - anchorY);
+      if (anchorX) score -= Math.abs(rect.left - Math.min(anchorX, rect.right));
+      score += Math.min(rect.width, 1200) / 20;
+      score += Math.min(rect.height, 400) / 10;
+      return score;
+    }
+    function findCandidateCards() {
+      var allCards = Array.from(document.querySelectorAll("li, div, section, article"));
+      return allCards.filter(function(card) {
+        if (!isVisible(card)) return false;
+        var textValue = (card.innerText || "").trim();
+        if (textValue.indexOf(name) < 0) return false;
+        return textValue.indexOf("打招呼") >= 0 || textValue.indexOf("继续沟通") >= 0;
+      }).sort(function(a, b) {
+        return scoreCard(b) - scoreCard(a);
+      }).slice(0, 5);
+    }
+    function findButtonInCard(card) {
+      if (!card) return null;
+      var buttons = Array.from(card.querySelectorAll("button, a, span, div")).filter(function(el) {
+        if (!isVisible(el)) return false;
+        var textValue = (el.innerText || el.textContent || "").trim();
+        return textValue === "打招呼";
+      });
+      if (buttons.length === 0) return null;
+      buttons.sort(function(a, b) {
+        var ar = a.getBoundingClientRect();
+        var br = b.getBoundingClientRect();
+        if (Math.abs((ar.top + ar.height / 2) - (br.top + br.height / 2)) > 10) {
+          var ad = anchorY ? Math.abs((ar.top + ar.height / 2) - anchorY) : ar.top;
+          var bd = anchorY ? Math.abs((br.top + br.height / 2) - anchorY) : br.top;
+          return ad - bd;
+        }
+        return br.right - ar.right;
+      });
+      return buttons[0];
+    }
+    function buttonTurnedToContinue(card, originalBtn) {
+      var btnText = (originalBtn && (originalBtn.innerText || originalBtn.textContent || "").trim()) || "";
+      var cardText = (card && (card.innerText || "").trim()) || "";
+      if (btnText === "继续沟通") return true;
+      if (cardText.indexOf("继续沟通") >= 0) return true;
+      var followButtons = Array.from((card || document).querySelectorAll("button, a, span, div")).filter(function(el) {
+        if (!isVisible(el)) return false;
+        var textValue = (el.innerText || el.textContent || "").trim();
+        return textValue === "继续沟通";
+      });
+      return followButtons.length > 0;
+    }
+    function findNearestButtonByAnchor() {
+      var buttons = Array.from(document.querySelectorAll("button, a, span, div")).filter(function(el) {
+        if (!isVisible(el)) return false;
+        var textValue = (el.innerText || el.textContent || "").trim();
+        return textValue === "打招呼";
+      });
+      if (!buttons.length) return null;
+      buttons.sort(function(a, b) {
+        var ar = a.getBoundingClientRect();
+        var br = b.getBoundingClientRect();
+        var ay = anchorY ? Math.abs((ar.top + ar.height / 2) - anchorY) : ar.top;
+        var by = anchorY ? Math.abs((br.top + br.height / 2) - anchorY) : br.top;
+        if (Math.abs(ay - by) > 6) return ay - by;
+        if (anchorX) {
+          var ax = Math.abs(ar.left - anchorX);
+          var bx = Math.abs(br.left - anchorX);
+          return ax - bx;
+        }
+        return br.right - ar.right;
+      });
+      return buttons[0];
+    }
+
+    var cards = findCandidateCards();
+    for (var ci = 0; ci < cards.length; ci++) {
+      var card = cards[ci];
+      var btn = findButtonInCard(card);
+      if (!btn) continue;
       clickLikeUser(btn);
       await sleep(1500 + rand(300, 900));
-      var latestCardText = (card.innerText || "").trim();
-      var latestBtnText = (btn.innerText || btn.textContent || "").trim();
-      if (latestCardText.indexOf("继续沟通") >= 0 || latestBtnText === "继续沟通") {
+      if (buttonTurnedToContinue(card, btn)) {
         return true;
       }
-      var refreshedButtons = Array.from(card.querySelectorAll("button, a, span, div")).filter(function(el) {
-        return isRecommendButtonText(el.innerText || el.textContent || "");
-      });
-      for (var ri = 0; ri < refreshedButtons.length; ri++) {
-        var refreshedText = (refreshedButtons[ri].innerText || refreshedButtons[ri].textContent || "").trim();
-        if (refreshedText === "继续沟通") {
-          return true;
-        }
+    }
+
+    var fallbackBtn = findNearestButtonByAnchor();
+    if (fallbackBtn) {
+      var fallbackCard = fallbackBtn.closest("li, div, section, article") || fallbackBtn.parentElement;
+      clickLikeUser(fallbackBtn);
+      await sleep(1500 + rand(300, 900));
+      if (buttonTurnedToContinue(fallbackCard, fallbackBtn)) {
+        return true;
       }
-      if (!text) {
-        return false;
-      }
-      return false;
     }
     return false;
   }
@@ -1628,7 +1694,7 @@ function scanDetail() {
         sendMsg(msg.params.text).then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "send_error:" + (e.message || e), meta: frameMeta()}); });
         return true;
       case "greet_recommend_candidate":
-        greetRecommendTalent(msg.params.name, msg.params.text || "").then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "greet_error:" + (e.message || e), meta: frameMeta()}); });
+        greetRecommendTalent(msg.params.name, msg.params.text || "", msg.params.x || 0, msg.params.y || 0).then(function(ok) { sendResponse({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "greet_error:" + (e.message || e), meta: frameMeta()}); });
         return true;
       case "navigate_page":
         navigatePage(msg.params.url).then(function(ok) { sendResponse({type: "status", data: ok ? "navigating" : "error:navigate_failed", meta: frameMeta()}); }).catch(function(e) { sendResponse({type: "error", data: "navigate_error:" + (e.message || e), meta: frameMeta()}); });
@@ -1688,7 +1754,7 @@ function scanDetail() {
           } else if (msg.cmd === "send_message" && msg.params && msg.params.text) {
             sendMsg(msg.params.text).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()})); });
           } else if (msg.cmd === "greet_recommend_candidate" && msg.params && msg.params.name) {
-            greetRecommendTalent(msg.params.name, msg.params.text || "").then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "greet_error:" + (e.message || e), meta: frameMeta()})); });
+            greetRecommendTalent(msg.params.name, msg.params.text || "", msg.params.x || 0, msg.params.y || 0).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "sent" : "error:failed", meta: frameMeta()})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "greet_error:" + (e.message || e), meta: frameMeta()})); });
           } else if (msg.cmd === "navigate_page" && msg.params && msg.params.url) {
             navigatePage(msg.params.url).then(function(ok) { cws.send(JSON.stringify({type: "status", data: ok ? "navigating" : "error:navigate_failed", meta: frameMeta()})); }).catch(function(e) { cws.send(JSON.stringify({type: "status", data: "navigate_error:" + (e.message || e), meta: frameMeta()})); });
           } else if (msg.cmd === "read_chat") {

@@ -422,6 +422,14 @@ class Bot:
                 return {"mode": "custom_text", "text": custom_text}
         return None
 
+    def build_recommend_greet_command(self, candidate, payload):
+        return {
+            "name": candidate.get("name", ""),
+            "text": payload.get("text", ""),
+            "x": candidate.get("x", 0),
+            "y": candidate.get("y", 0),
+        }
+
     async def navigate_and_wait(self, url, wait_seconds=6):
         self.connected = False
         self.page_title = ""
@@ -914,7 +922,7 @@ class Bot:
                     if not name or name in sent_names:
                         continue
                     print('  [' + str(i+1) + '/' + str(total) + '] ' + name + ' - ' + ca.get("intent", ""))
-                    await self.cmd("greet_recommend_candidate", {"name": name, "text": payload.get("text", "")})
+                    await self.cmd("greet_recommend_candidate", self.build_recommend_greet_command(ca, payload))
                     await asyncio.sleep(self.rand_delay())
                     sent_names.add(name)
                     sent += 1
