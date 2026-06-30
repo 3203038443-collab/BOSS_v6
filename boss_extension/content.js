@@ -1006,6 +1006,12 @@
     });
   }
 
+  function queryRecommendRoots(selector) {
+    var docs = collectAccessibleDocuments(document);
+    var roots = collectQueryRoots(docs);
+    return queryAllRoots(roots, selector);
+  }
+
   async function greetRecommendTalent(name, text, anchorX, anchorY) {
     console.log("[CT] greetRecommendTalent:", name, anchorX, anchorY);
     function clickLikeUser(el) {
@@ -1028,7 +1034,8 @@
       }
     }
     function cardHasDirectGreetButton(card) {
-      var buttons = Array.from(card.querySelectorAll("button, a, span, div")).filter(function(el) {
+      var buttons = Array.from(queryRecommendRoots("button, a, span, div")).filter(function(el) {
+        if (!card.contains(el)) return false;
         if (!isVisible(el)) return false;
         var textValue = (el.innerText || el.textContent || "").trim();
         return textValue === "打招呼";
@@ -1058,7 +1065,7 @@
     function findCandidateCards() {
       var seen = [];
       var metas = [];
-      var nameHits = Array.from(document.querySelectorAll("div, span, p, strong, em, b, a, li, section, article")).filter(function(el) {
+      var nameHits = Array.from(queryRecommendRoots("div, span, p, strong, em, b, a, li, section, article")).filter(function(el) {
         if (!isVisible(el)) return false;
         var textValue = (el.innerText || el.textContent || "").trim();
         return containsRecommendCandidateName(textValue, name);
@@ -1084,7 +1091,7 @@
         }
       }
       if (metas.length === 0) {
-        var allCards = Array.from(document.querySelectorAll("li, div, section, article"));
+        var allCards = Array.from(queryRecommendRoots("li, div, section, article"));
         for (var ci = 0; ci < allCards.length; ci++) {
           var card = allCards[ci];
           if (!isVisible(card)) continue;
@@ -1100,7 +1107,8 @@
     }
     function findButtonInCard(card) {
       if (!card) return null;
-      var buttons = Array.from(card.querySelectorAll("button, a, span, div")).filter(function(el) {
+      var buttons = Array.from(queryRecommendRoots("button, a, span, div")).filter(function(el) {
+        if (!card.contains(el)) return false;
         if (!isVisible(el)) return false;
         var textValue = (el.innerText || el.textContent || "").trim();
         return textValue === "打招呼";
@@ -1123,7 +1131,8 @@
       var cardText = (card && (card.innerText || "").trim()) || "";
       if (btnText === "继续沟通" || btnText === "已沟通") return true;
       if (cardText.indexOf("继续沟通") >= 0 || cardText.indexOf("已沟通") >= 0) return true;
-      var followButtons = Array.from((card || document).querySelectorAll("button, a, span, div")).filter(function(el) {
+      var followButtons = Array.from(queryRecommendRoots("button, a, span, div")).filter(function(el) {
+        if (card && !card.contains(el)) return false;
         if (!isVisible(el)) return false;
         var textValue = (el.innerText || el.textContent || "").trim();
         return textValue === "继续沟通" || textValue === "已沟通";
@@ -1138,7 +1147,7 @@
       return "error:clicked_no_state_change";
     }
     function findNearestButtonByAnchor() {
-      var buttons = Array.from(document.querySelectorAll("button, a, span, div")).filter(function(el) {
+      var buttons = Array.from(queryRecommendRoots("button, a, span, div")).filter(function(el) {
         if (!isVisible(el)) return false;
         var textValue = (el.innerText || el.textContent || "").trim();
         return textValue === "打招呼";

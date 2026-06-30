@@ -30,6 +30,7 @@ vm.createContext(sandbox);
   "containsRecommendCandidateName",
   "scoreRecommendCardMeta",
   "sortRecommendCardMetas",
+  "queryRecommendRoots",
 ].forEach((name) => {
   vm.runInContext(extractFunction(name), sandbox, { filename: "content.js" });
 });
@@ -83,5 +84,38 @@ const ranked = sandbox.sortRecommendCardMetas(
 
 assert.strictEqual(ranked[0].id, "card", "smallest matching card with direct greet button should rank first");
 assert.strictEqual(ranked.every((item) => item.id !== "name-only"), true, "name-only inner block without action should be excluded");
+
+let collectDocCalls = 0;
+let collectRootCalls = 0;
+let queryCalls = 0;
+const docList = [{ id: "doc-a" }, { id: "doc-b" }];
+const rootList = [{ id: "root-a" }, { id: "root-b" }];
+const queryResult = [{ id: "candidate-a" }, { id: "candidate-b" }];
+sandbox.collectAccessibleDocuments = (rootDoc) => {
+  collectDocCalls += 1;
+  assert.strictEqual(rootDoc, sandbox.document, "queryRecommendRoots should start from current document");
+  return docList;
+};
+sandbox.collectQueryRoots = (docs) => {
+  collectRootCalls += 1;
+  assert.deepStrictEqual(docs, docList, "queryRecommendRoots should reuse accessible documents");
+  return rootList;
+};
+sandbox.queryAllRoots = (roots, selector) => {
+  queryCalls += 1;
+  assert.deepStrictEqual(roots, rootList, "queryRecommendRoots should query across collected roots");
+  assert.strictEqual(selector, "button, div", "queryRecommendRoots should forward selector");
+  return queryResult;
+};
+sandbox.document = { id: "doc-current" };
+
+assert.deepStrictEqual(
+  sandbox.queryRecommendRoots("button, div"),
+  queryResult,
+  "queryRecommendRoots should return cross-root query results",
+);
+assert.strictEqual(collectDocCalls, 1, "collectAccessibleDocuments should be called once");
+assert.strictEqual(collectRootCalls, 1, "collectQueryRoots should be called once");
+assert.strictEqual(queryCalls, 1, "queryAllRoots should be called once");
 
 console.log("recommend greet helper tests passed");
